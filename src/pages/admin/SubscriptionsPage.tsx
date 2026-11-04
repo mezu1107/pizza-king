@@ -354,8 +354,8 @@ function PlanCard({ pkg, category, isNew, onSaved, onRemovedDraft }: PlanCardPro
       // upsert returns the row id (new for drafts, same for existing).
       const targetId = id ?? pkg.id;
       if (targetId) {
-        await setPackageModules(targetId, modules);
-        await setPackageFeatures(targetId, features);
+        await setPackageModules(pkg.planKey, modules);
+        await setPackageFeatures(pkg.planKey, features);
       }
       toast({ title: "Plan saved", description: `${name} updated successfully.` });
       onSaved();
@@ -377,7 +377,7 @@ function PlanCard({ pkg, category, isNew, onSaved, onRemovedDraft }: PlanCardPro
     }
     setSaving(true);
     try {
-      await deletePackage(pkg.id);
+      await deletePackage(pkg.planKey);
       toast({ title: "Plan disabled", description: `${name} has been disabled.` });
       onSaved();
     } catch (err) {

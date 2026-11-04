@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ShoppingBag,
@@ -6,6 +6,8 @@ import {
   Upload,
   ShoppingCart,
   ArrowLeft,
+  AlertTriangle,
+  Loader2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,19 +15,25 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { insertModuleOrder } from "@/hooks/useModuleOrders";
+import { usePackages } from "@/hooks/usePackages";
+import { insertPackageOrder } from "@/hooks/usePackageOrders";
+import { MODULES } from "@/contexts/SubscriptionContext";
+import { supabase } from "@/integrations/supabase/client";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type CartItem = {
-  moduleKey: string;
-  moduleName: string;
-  planType: "one-time" | "monthly";
-  price: number;
-};
+interface CartItem {
+  planKey: string;
+  packageName: string;
+  category: "admin" | "rider";
+  billingType: "monthly" | "one_time";
+  amount: number;
+}
 
 const ORDERS_KEY = "pizza_king_orders";
 const CART_SESSION_KEY = "feature_store_cart";
+
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
@@ -33,14 +41,23 @@ export default function CheckoutPage() {
   const navigate = useNavigate();
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const [cart, setCart] = useState<CartItem[]>(() => {
+  const [cart, setCart] = useState<CartItem | null>(() => {
     try {
       const stored = sessionStorage.getItem(CART_SESSION_KEY);
-      return stored ? (JSON.parse(stored) as CartItem[]) : [];
+      return stored ? (JSON.parse(stored) as CartItem) : null;
     } catch {
-      return [];
+      return null;
     }
   });
+
+  const { packages, loading: packagesLoading } = usePackages();
+
+  // Resolve the selected plan from the fetched package list. The cart's amount
+  // is NEVER trusted for the DB insert — the price is re-derived below.
+  const selectedPackage = useMemo(
+    () => (cart ? packages.find((p) => p.planKey === cart.planKey) ?? null : null),
+    [packages, cart]
+  );
 
   const [form, setForm] = useState({
     buyerName: "",
@@ -49,18 +66,87 @@ export default function CheckoutPage() {
     txnId: "",
   });
   const [screenshotFile, setScreenshotFile] = useState<File | null>(null);
+  const [screenshotDataUrl, setScreenshotDataUrl] = useState<string | null>(null);
   const [formError, setFormError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
-  const [orderTokens, setOrderTokens] = useState<string[]>([]);
+  const [orderToken, setOrderToken] = useState<string | null>(null);
+  const [paidAmount, setPaidAmount] = useState(0);
+  const [duplicateWarn, setDuplicateWarn] = useState(false);
+  const [duplicateChecking, setDuplicateChecking] = useState(false);
 
-  // Redirect if cart is empty
+  // Redirect to the store when there is no cart (and not on the success screen).
   useEffect(() => {
-    if (cart.length === 0) {
+    if (!cart && !submitted) {
       navigate("/feature-store", { replace: true });
     }
-  }, [cart.length, navigate]);
+  }, [cart, submitted, navigate]);
 
-  const total = cart.reduce((sum, item) => sum + item.price, 0);
+  // Read the chosen screenshot into a data URL.
+  useEffect(() => {
+    if (!screenshotFile) {
+      setScreenshotDataUrl(null);
+      return;
+    }
+    let active = true;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      if (active) setScreenshotDataUrl((ev.target?.result as string) ?? null);
+    };
+    reader.onerror = () => {
+      if (active) setScreenshotDataUrl(null);
+    };
+    reader.readAsDataURL(screenshotFile);
+    return () => {
+      active = false;
+    };
+  }, [screenshotFile]);
+
+  // Re-derive the trusted amount from the fetched package (never the cart).
+  const trustedAmount = useMemo(() => {
+    if (!selectedPackage || !cart) return 0;
+    return cart.billingType === "monthly"
+      ? selectedPackage.monthlyPrice
+      : selectedPackage.oneTimePrice;
+  }, [selectedPackage, cart]);
+
+  // Readable names for the modules included in this plan.
+  const moduleNames = useMemo(() => {
+    if (!selectedPackage) return [];
+    return selectedPackage.moduleKeys.map(
+      (key) => MODULES.find((m) => m.key === key)?.name ?? key
+    );
+  }, [selectedPackage]);
+
+  // Best-effort duplicate check: an existing package_orders row for the same
+  // plan_key + buyer_email with status pending/active. Warn only — never block.
+  useEffect(() => {
+    const email = form.buyerEmail.trim();
+    const planKey = cart?.planKey;
+    if (!planKey || !email || !EMAIL_RE.test(email)) {
+      setDuplicateWarn(false);
+      setDuplicateChecking(false);
+      return;
+    }
+    let active = true;
+    setDuplicateChecking(true);
+    const timer = setTimeout(async () => {
+      const { data } = await supabase
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .from("package_orders" as any)
+        .select("id")
+        .eq("plan_key", planKey)
+        .eq("buyer_email", email)
+        .in("status", ["pending", "active"]);
+      if (!active) return;
+      setDuplicateWarn(Array.isArray(data) && data.length > 0);
+      setDuplicateChecking(false);
+    }, 500);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [form.buyerEmail, cart?.planKey]);
 
   const handleFieldChange = (field: keyof typeof form, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -69,87 +155,96 @@ export default function CheckoutPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!cart || !selectedPackage) {
+      setFormError("Your plan could not be loaded. Please go back and choose a plan.");
+      return;
+    }
     if (!form.buyerName.trim()) { setFormError("Full name is required."); return; }
     if (!form.buyerEmail.trim()) { setFormError("Email is required."); return; }
     if (!form.buyerPhone.trim()) { setFormError("Phone is required."); return; }
     if (!form.txnId.trim()) { setFormError("Transaction ID is required."); return; }
 
-    let screenshotDataUrl: string | null = null;
-    if (screenshotFile) {
-      try {
-        screenshotDataUrl = await new Promise<string | null>((resolve) => {
-          const reader = new FileReader();
-          reader.onload = (ev) => resolve((ev.target?.result as string) ?? null);
-          reader.onerror = () => resolve(null);
-          reader.readAsDataURL(screenshotFile);
-        });
-      } catch {
-        screenshotDataUrl = null;
-      }
-    }
+    setSubmitting(true);
+    setFormError("");
 
-    // Save one order per cart item
-    const now = Date.now();
-    const newOrders = cart.map((item, index) => ({
-      id: `order_${now}_${index}`,
-      moduleKey: item.moduleKey,
-      moduleName: item.moduleName,
-      planType: item.planType,
-      amount: item.price,
-      buyerName: form.buyerName.trim(),
-      buyerEmail: form.buyerEmail.trim(),
-      buyerPhone: form.buyerPhone.trim(),
+    // Capture everything we need before clearing the cart.
+    const submitCart = cart;
+    const submitPkg = selectedPackage;
+    const submitAmount = trustedAmount;
+    const buyer = {
+      name: form.buyerName.trim(),
+      email: form.buyerEmail.trim(),
+      phone: form.buyerPhone.trim(),
       txnId: form.txnId.trim(),
-      screenshotDataUrl,
-      status: "pending" as const,
-      submittedAt: new Date().toISOString(),
-    }));
+    };
 
     try {
-      const existing = JSON.parse(localStorage.getItem(ORDERS_KEY) ?? "[]") as unknown[];
-      localStorage.setItem(ORDERS_KEY, JSON.stringify([...existing, ...newOrders]));
-    } catch {
-      localStorage.setItem(ORDERS_KEY, JSON.stringify(newOrders));
-    }
+      const result = await insertPackageOrder({
+        packageId: submitPkg.id,
+        packageName: submitCart.packageName,
+        planKey: submitCart.planKey,
+        category: submitCart.category,
+        billingType: submitCart.billingType,
+        amount: submitAmount,
+        buyerName: buyer.name,
+        buyerEmail: buyer.email,
+        buyerPhone: buyer.phone,
+        txnId: buyer.txnId,
+        screenshotDataUrl,
+      });
 
-    // Also insert into Supabase
-    try {
-      const insertResults = await Promise.allSettled(
-        cart.map((item) =>
-          insertModuleOrder({
-            moduleKey: item.moduleKey,
-            moduleName: item.moduleName,
-            planType: item.planType,
-            amount: item.price,
-            buyerName: form.buyerName.trim(),
-            buyerEmail: form.buyerEmail.trim(),
-            buyerPhone: form.buyerPhone.trim(),
-            txnId: form.txnId.trim(),
-            screenshotDataUrl,
-          })
-        )
+      if (!result) {
+        setFormError("Could not submit your order to the server. Please try again.");
+        setSubmitting(false);
+        return;
+      }
+
+      // Local backup (best-effort).
+      try {
+        const existing = JSON.parse(localStorage.getItem(ORDERS_KEY) ?? "[]") as unknown[];
+        localStorage.setItem(
+          ORDERS_KEY,
+          JSON.stringify([
+            ...existing,
+            {
+              id: `pkg_${Date.now()}`,
+              planKey: submitCart.planKey,
+              packageName: submitCart.packageName,
+              category: submitCart.category,
+              billingType: submitCart.billingType,
+              amount: submitAmount,
+              buyerName: buyer.name,
+              buyerEmail: buyer.email,
+              buyerPhone: buyer.phone,
+              txnId: buyer.txnId,
+              status: "pending",
+              orderToken: result.orderToken,
+              submittedAt: new Date().toISOString(),
+            },
+          ])
+        );
+      } catch {
+        // non-fatal
+      }
+
+      setOrderToken(result.orderToken);
+      setPaidAmount(submitAmount);
+      sessionStorage.removeItem(CART_SESSION_KEY);
+      setCart(null);
+      setSubmitted(true);
+
+      const billingLabel = submitCart.billingType === "monthly" ? "Monthly" : "One-time";
+      const waMessage = encodeURIComponent(
+        `🍕 *New Plan Purchase Request*\nPackage: ${submitCart.packageName}\nBilling: ${billingLabel}\nAmount: PKR ${submitAmount.toLocaleString()}\nBuyer: ${buyer.name}\nEmail: ${buyer.email}\nPhone: ${buyer.phone}\nTRX ID: ${buyer.txnId}`
       );
-      const tokens = insertResults
-        .filter((r): r is PromiseFulfilledResult<{ orderToken: string } | null> => r.status === "fulfilled")
-        .map((r) => r.value?.orderToken)
-        .filter((t): t is string => !!t);
-      setOrderTokens(tokens);
+      setTimeout(() => {
+        window.open(`https://wa.me/923173712950?text=${waMessage}`, "_blank");
+      }, 2500);
     } catch {
-      // Non-fatal: localStorage backup was already saved
+      setFormError("Something went wrong while submitting your order. Please try again.");
+    } finally {
+      setSubmitting(false);
     }
-
-    sessionStorage.removeItem(CART_SESSION_KEY);
-    setCart([]);
-    setSubmitted(true);
-
-    const moduleList = newOrders.map((o) => o.moduleName).join(", ");
-    const waMessage = encodeURIComponent(
-      `🍕 *New Purchase Request - ${newOrders.length} Module(s)*\nBuyer: ${form.buyerName.trim()}\nEmail: ${form.buyerEmail.trim()}\nPhone: ${form.buyerPhone.trim()}\nTRX ID: ${form.txnId.trim()}\nTotal: PKR ${total.toLocaleString()}\nModules: ${moduleList}`
-    );
-
-    setTimeout(() => {
-      window.open(`https://wa.me/923173712950?text=${waMessage}`, "_blank");
-    }, 2500);
   };
 
   // ─── Success state ────────────────────────────────────────────────────────
@@ -168,15 +263,15 @@ export default function CheckoutPage() {
               Our team will verify your payment within 24 hours.
             </p>
             <div className="text-lg font-semibold text-orange-600">
-              Total Paid: PKR {total.toLocaleString()}
+              Amount: PKR {paidAmount.toLocaleString()}
             </div>
-            {orderTokens.length > 0 && (
+            {orderToken && (
               <div className="text-sm bg-muted rounded p-3 space-y-1 text-left">
-                <p className="font-medium">Your Order Token(s):</p>
-                {orderTokens.map((t) => (
-                  <p key={t} className="font-mono text-xs break-all">{t}</p>
-                ))}
-                <p className="text-xs text-muted-foreground">Save these to track your order status.</p>
+                <p className="font-medium">Your Order Token:</p>
+                <p className="font-mono text-xs break-all">{orderToken}</p>
+                <p className="text-xs text-muted-foreground">
+                  Save this to track your order status.
+                </p>
               </div>
             )}
             <Button
@@ -184,11 +279,15 @@ export default function CheckoutPage() {
               className="text-orange-600 w-full"
               onClick={() => navigate("/track-my-order")}
             >
-              Track My Order →
+              Track at /track-my-order →
             </Button>
-            <Button variant="outline" onClick={() => navigate("/feature-store")} className="w-full gap-2">
+            <Button
+              variant="outline"
+              onClick={() => navigate("/feature-store")}
+              className="w-full gap-2"
+            >
               <ShoppingBag className="w-4 h-4" />
-              Back to Feature Store
+              Back to Pricing &amp; Plans
             </Button>
           </CardContent>
         </Card>
@@ -196,9 +295,11 @@ export default function CheckoutPage() {
     );
   }
 
-  if (cart.length === 0) {
-    return null; // useEffect will redirect
+  if (!cart) {
+    return null; // useEffect redirects to /feature-store
   }
+
+  const submitDisabled = submitting || packagesLoading || !selectedPackage;
 
   return (
     <div className="min-h-screen bg-background p-4">
@@ -213,7 +314,9 @@ export default function CheckoutPage() {
               <ShoppingCart className="w-6 h-6 text-orange-500" />
               Checkout
             </h1>
-            <p className="text-sm text-muted-foreground">{cart.length} module(s) in your order</p>
+            <p className="text-sm text-muted-foreground">
+              {cart.packageName} · {cart.billingType === "monthly" ? "Monthly" : "One-time"}
+            </p>
           </div>
         </div>
 
@@ -225,27 +328,61 @@ export default function CheckoutPage() {
               <CardHeader>
                 <CardTitle className="text-base">Order Summary</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-3">
-                {cart.map((item) => (
-                  <div key={`${item.moduleKey}-${item.planType}`} className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-medium text-sm">{item.moduleName}</p>
-                      <Badge variant="outline" className="text-xs capitalize mt-1">
-                        {item.planType}
+              <CardContent className="space-y-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-medium">{cart.packageName}</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <Badge variant="outline" className="text-xs capitalize">
+                        {cart.category}
+                      </Badge>
+                      <Badge variant="outline" className="text-xs">
+                        {cart.billingType === "monthly" ? "Monthly" : "One-time"}
                       </Badge>
                     </div>
-                    <span className="text-sm font-semibold shrink-0">
-                      PKR {item.price.toLocaleString()}
-                      {item.planType === "monthly" && <span className="text-xs font-normal text-muted-foreground">/mo</span>}
-                    </span>
                   </div>
-                ))}
+                  <span className="text-lg font-semibold shrink-0 text-orange-600">
+                    PKR {trustedAmount.toLocaleString()}
+                    {cart.billingType === "monthly" && (
+                      <span className="text-xs font-normal text-muted-foreground">/mo</span>
+                    )}
+                  </span>
+                </div>
+
+                <Separator />
+
+                {/* Included modules */}
+                <div className="space-y-1.5">
+                  <p className="text-sm font-medium">
+                    Included modules
+                    {selectedPackage && (
+                      <span className="text-muted-foreground font-normal">
+                        {" "}({moduleNames.length})
+                      </span>
+                    )}
+                  </p>
+                  {packagesLoading || !selectedPackage ? (
+                    <p className="text-sm text-muted-foreground">Loading plan details…</p>
+                  ) : (
+                    <ul className="space-y-1">
+                      {moduleNames.map((name) => (
+                        <li
+                          key={name}
+                          className="flex items-center gap-2 text-sm text-muted-foreground"
+                        >
+                          <CheckCircle className="w-3.5 h-3.5 text-green-500 shrink-0" />
+                          {name}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
 
                 <Separator />
 
                 <div className="flex justify-between font-bold text-base">
                   <span>Total</span>
-                  <span className="text-orange-600">PKR {total.toLocaleString()}</span>
+                  <span className="text-orange-600">PKR {trustedAmount.toLocaleString()}</span>
                 </div>
               </CardContent>
             </Card>
@@ -255,10 +392,10 @@ export default function CheckoutPage() {
               <CardContent className="pt-4 space-y-2 text-sm text-muted-foreground">
                 <p className="font-medium text-foreground">What happens next?</p>
                 <ol className="space-y-1 list-decimal list-inside">
-                  <li>Transfer PKR {total.toLocaleString()} to the account below</li>
+                  <li>Transfer PKR {trustedAmount.toLocaleString()} to the account below</li>
                   <li>Submit this form with your transaction ID</li>
                   <li>Our team verifies within 24 hours</li>
-                  <li>Modules are unlocked automatically</li>
+                  <li>Your plan's modules unlock automatically once approved</li>
                 </ol>
               </CardContent>
             </Card>
@@ -368,20 +505,47 @@ export default function CheckoutPage() {
                   />
                 </div>
 
+                {/* Duplicate-order warning (non-blocking) */}
+                {duplicateWarn && (
+                  <div className="flex items-start gap-2 rounded-lg border border-yellow-300 bg-yellow-50 p-3 text-sm text-yellow-800">
+                    <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <span>
+                      You may already have a pending or active order for this plan with this
+                      email. You can still submit — our team will review and avoid duplicates.
+                    </span>
+                  </div>
+                )}
+
                 {formError && (
                   <p className="text-sm text-red-500 font-medium">{formError}</p>
                 )}
 
                 <Button
                   type="submit"
+                  disabled={submitDisabled}
                   className="w-full bg-gradient-to-r from-orange-500 to-red-600 text-white hover:opacity-90 gap-2"
                 >
-                  <ShoppingCart className="w-4 h-4" />
-                  Confirm &amp; Request Access 🚀
+                  {submitting || packagesLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      {packagesLoading ? "Loading plan…" : "Submitting…"}
+                    </>
+                  ) : (
+                    <>
+                      <ShoppingCart className="w-4 h-4" />
+                      Confirm &amp; Request Access 🚀
+                    </>
+                  )}
                 </Button>
 
+                {duplicateChecking && (
+                  <p className="text-xs text-muted-foreground text-center">
+                    Checking for existing orders…
+                  </p>
+                )}
+
                 <p className="text-xs text-muted-foreground text-center">
-                  Our team will verify your payment within 24 hours and unlock your modules.
+                  Our team will verify your payment within 24 hours and unlock your plan.
                 </p>
               </form>
             </CardContent>

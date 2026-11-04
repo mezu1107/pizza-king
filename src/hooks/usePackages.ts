@@ -298,58 +298,40 @@ export async function upsertPackage(
   return (data as unknown as string | null) ?? null;
 }
 
-/** Soft-disable a plan (keeps historical order references intact). */
-export async function deletePackage(id: string): Promise<void> {
-  const { error } = await supabase
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .from("subscription_packages" as any)
-    .update({ is_enabled: false, updated_at: new Date().toISOString() })
-    .eq("id", id);
+/** Soft-disable a plan via the SECURITY DEFINER RPC (keeps historical order refs). */
+export async function deletePackage(planKey: string): Promise<void> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (supabase as any).rpc("disable_package", {
+    p_secret: ADMIN_RPC_SECRET,
+    p_plan_key: planKey,
+  });
   if (error) throw new Error(error.message);
 }
 
-/** Replace a plan's module set atomically (delete + re-insert). */
+/** Replace a plan's module set atomically via SECURITY DEFINER RPC. */
 export async function setPackageModules(
-  packageId: string,
+  planKey: string,
   moduleKeys: string[]
 ): Promise<void> {
-  const { error: delError } = await supabase
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .from("package_modules" as any)
-    .delete()
-    .eq("package_id", packageId);
-  if (delError) throw new Error(delError.message);
-
-  if (moduleKeys.length === 0) return;
-  const rows = moduleKeys.map((module_key) => ({ package_id: packageId, module_key }));
-  const { error: insError } = await supabase
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .from("package_modules" as any)
-    .insert(rows);
-  if (insError) throw new Error(insError.message);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (supabase as any).rpc("set_package_modules", {
+    p_secret: ADMIN_RPC_SECRET,
+    p_plan_key: planKey,
+    p_module_keys: moduleKeys,
+  });
+  if (error) throw new Error(error.message);
 }
 
-/** Replace a plan's feature bullets atomically (delete + re-insert w/ sort_order). */
+/** Replace a plan's feature bullets atomically via SECURITY DEFINER RPC. */
 export async function setPackageFeatures(
-  packageId: string,
+  planKey: string,
   features: string[]
 ): Promise<void> {
-  const { error: delError } = await supabase
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .from("package_features" as any)
-    .delete()
-    .eq("package_id", packageId);
-  if (delError) throw new Error(delError.message);
-
-  if (features.length === 0) return;
-  const rows = features.map((feature_text, index) => ({
-    package_id: packageId,
-    feature_text,
-    sort_order: index,
-  }));
-  const { error: insError } = await supabase
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .from("package_features" as any)
-    .insert(rows);
-  if (insError) throw new Error(insError.message);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (supabase as any).rpc("set_package_features", {
+    p_secret: ADMIN_RPC_SECRET,
+    p_plan_key: planKey,
+    p_features: features,
+  });
+  if (error) throw new Error(error.message);
 }

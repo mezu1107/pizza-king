@@ -4,105 +4,315 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useMyOrders } from "@/hooks/useModuleOrders";
-import type { ModuleOrder } from "@/hooks/useModuleOrders";
-import { Search, Package } from "lucide-react";
+import { useMyPackageOrders } from "@/hooks/usePackageOrders";
+import type { PackageOrder } from "@/hooks/usePackageOrders";
+import {
+  Search,
+  Package,
+  RefreshCw,
+  CheckCircle,
+  Loader2,
+  Circle,
+  XCircle,
+  MessageCircle,
+} from "lucide-react";
 
 // ─── Status badge ─────────────────────────────────────────────────────────────
 
-function StatusBadge({ status }: { status: ModuleOrder["status"] }) {
-  if (status === "approved") {
-    return (
-      <Badge className="bg-green-100 text-green-700 border-green-300">
-        Approved ✅
-      </Badge>
-    );
+function StatusBadge({ status }: { status: PackageOrder["status"] }) {
+  switch (status) {
+    case "approved":
+      return (
+        <Badge className="bg-green-100 text-green-700 border-green-300">Approved ✅</Badge>
+      );
+    case "active":
+      return (
+        <Badge className="bg-green-100 text-green-700 border-green-300">Active ✅</Badge>
+      );
+    case "rejected":
+      return <Badge variant="destructive">Rejected ❌</Badge>;
+    case "expired":
+      return (
+        <Badge className="bg-gray-100 text-gray-600 border-gray-300">Expired</Badge>
+      );
+    case "cancelled":
+      return (
+        <Badge className="bg-gray-100 text-gray-600 border-gray-300">Cancelled</Badge>
+      );
+    case "pending":
+    default:
+      return (
+        <Badge variant="outline" className="text-yellow-600 border-yellow-400">
+          Pending ⏳
+        </Badge>
+      );
   }
-  if (status === "rejected") {
-    return <Badge variant="destructive">Rejected ❌</Badge>;
-  }
-  return (
-    <Badge variant="outline" className="text-yellow-600 border-yellow-400">
-      Pending ⏳
-    </Badge>
-  );
 }
 
-function statusMessage(status: ModuleOrder["status"]): string {
-  if (status === "approved")
-    return "🟢 Access Granted! Your module has been unlocked.";
+// ─── Timeline ─────────────────────────────────────────────────────────────────
+
+interface StageInfo {
+  label: string;
+  state: "done" | "current" | "upcoming";
+  timestamp: string | null;
+}
+
+interface TerminalInfo {
+  label: string;
+  timestamp: string | null;
+}
+
+// Derive the 6-stage progress + optional terminal state from the order's
+// status and status-history rows.
+function deriveTimeline(order: PackageOrder): {
+  stages: StageInfo[];
+  terminal: TerminalInfo | null;
+} {
+  const status = order.status;
+
+  // First-history timestamp per status.
+  const hist: Record<string, string> = {};
+  for (const h of order.history) {
+    if (h.createdAt && !hist[h.status]) hist[h.status] = h.createdAt;
+  }
+  const H = (s: string) => hist[s] ?? null;
+
+  const labels = [
+    "Order Placed",
+    "Payment Submitted",
+    "Payment Under Verification",
+    "Payment Approved",
+    "Package Activation in Progress",
+    "Package Activated",
+  ];
+
+  // completed = number of fully-done stages; currentIndex = in-progress stage (0-based).
+  let completed = 0;
+  let currentIndex: number | null = null;
+  switch (status) {
+    case "pending":
+      completed = 2; // Order Placed + Payment Submitted
+      currentIndex = 2; // Under Verification
+      break;
+    case "approved":
+      completed = 4; // through Payment Approved
+      currentIndex = 4; // Activation in Progress
+      break;
+    case "active":
+      completed = 6; // all done
+      currentIndex = null;
+      break;
+    case "rejected":
+    case "cancelled":
+      completed = 2;
+      currentIndex = null;
+      break;
+    case "expired":
+      completed = 6;
+      currentIndex = null;
+      break;
+    default:
+      completed = 0;
+      currentIndex = 0;
+  }
+
+  const createdTs = order.createdAt || null;
+
+  const timestamps: (string | null)[] = [
+    (H("pending") ?? order.createdAt) || null,
+    createdTs,
+    (H("pending") ?? order.createdAt) || null,
+    H("approved") ?? (status === "approved" || status === "active" ? order.updatedAt : null),
+    H("approved") ?? (status === "active" ? order.updatedAt : null),
+    H("active") ?? (status === "active" ? order.updatedAt : null),
+  ];
+
+  const stages: StageInfo[] = labels.map((label, i) => {
+    let state: StageInfo["state"];
+    if (i < completed) state = "done";
+    else if (i === currentIndex) state = "current";
+    else state = "upcoming";
+    return { label, state, timestamp: state === "upcoming" ? null : timestamps[i] };
+  });
+
+  let terminal: TerminalInfo | null = null;
   if (status === "rejected")
-    return "🔴 Payment could not be verified. Please contact support on WhatsApp.";
-  return "🟡 Under Review — Your payment is being verified. Usually within 24 hours.";
+    terminal = { label: "Payment Rejected", timestamp: H("rejected") ?? order.updatedAt };
+  else if (status === "cancelled")
+    terminal = { label: "Order Cancelled", timestamp: H("cancelled") ?? order.updatedAt };
+  else if (status === "expired")
+    terminal = { label: "Subscription Expired", timestamp: H("expired") ?? order.updatedAt };
+
+  return { stages, terminal };
+}
+
+function fmt(ts: string | null): string | null {
+  if (!ts) return null;
+  const d = new Date(ts);
+  return isNaN(d.getTime()) ? null : d.toLocaleString();
+}
+
+function Timeline({ order }: { order: PackageOrder }) {
+  const { stages, terminal } = deriveTimeline(order);
+  const items = stages.length + (terminal ? 1 : 0);
+
+  return (
+    <div>
+      {stages.map((s, i) => {
+        const isLast = i === stages.length - 1;
+        const showConnector = !isLast || !!terminal;
+        const ts = fmt(s.timestamp);
+        return (
+          <div key={i} className="flex gap-3">
+            {/* Left rail: dot + connector */}
+            <div className="flex flex-col items-center self-stretch">
+              <div
+                className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${
+                  s.state === "done"
+                    ? "bg-green-500"
+                    : s.state === "current"
+                    ? "bg-orange-500"
+                    : "bg-muted border border-border"
+                }`}
+              >
+                {s.state === "done" ? (
+                  <CheckCircle className="w-3 h-3 text-white" />
+                ) : s.state === "current" ? (
+                  <Loader2 className="w-3 h-3 text-white animate-spin" />
+                ) : (
+                  <Circle className="w-2 h-2 text-muted-foreground" />
+                )}
+              </div>
+              {showConnector && <div className="w-px grow bg-border" />}
+            </div>
+            {/* Right: content */}
+            <div className={showConnector || i < items - 1 ? "pb-4" : ""}>
+              <p
+                className={`text-sm font-medium ${
+                  s.state === "upcoming" ? "text-muted-foreground" : "text-foreground"
+                }`}
+              >
+                {s.label}
+              </p>
+              {ts && <p className="text-xs text-muted-foreground">{ts}</p>}
+            </div>
+          </div>
+        );
+      })}
+      {terminal && (
+        <div className="flex gap-3">
+          <div className="flex flex-col items-center self-stretch">
+            <div className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 bg-red-500">
+              <XCircle className="w-3 h-3 text-white" />
+            </div>
+          </div>
+          <div>
+            <p className="text-sm font-medium text-red-600">{terminal.label}</p>
+            {fmt(terminal.timestamp) && (
+              <p className="text-xs text-muted-foreground">{fmt(terminal.timestamp)}</p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ─── Order card ───────────────────────────────────────────────────────────────
 
-function OrderCard({ order }: { order: ModuleOrder }) {
-  const last4 = order.txnId.length > 4 ? order.txnId.slice(-4) : order.txnId;
-  const maskedTxn = `****${last4}`;
-  const submittedDate = order.submittedAt
-    ? new Date(order.submittedAt).toLocaleString()
-    : "—";
+function OrderCard({ order }: { order: PackageOrder }) {
+  const submittedDate = order.createdAt ? new Date(order.createdAt).toLocaleString() : "—";
+  const updatedDate = order.updatedAt ? new Date(order.updatedAt).toLocaleString() : "—";
+  const isOneTime = order.billingType === "one_time";
 
-  const waMessage = encodeURIComponent(
-    `Hi, I need help with my order.\nOrder Token: ${order.orderToken}\nModule: ${order.moduleName}\nPlan: ${order.planType}`
+  const subPeriod = isOneTime
+    ? "Lifetime access"
+    : order.subscriptionStart
+    ? `${order.subscriptionStart}${order.subscriptionEnd ? " → " + order.subscriptionEnd : ""}`
+    : "Not started yet";
+
+  const showWhatsApp =
+    order.status === "rejected" ||
+    order.status === "expired" ||
+    order.status === "cancelled";
+
+  const waText = encodeURIComponent(
+    `Hi, I need help with my plan order.\nOrder Token: ${order.orderToken}\nPackage: ${order.packageName}\nStatus: ${order.status}`
   );
 
   return (
-    <Card className="border">
-      <CardContent className="pt-4 space-y-3">
+    <Card>
+      <CardContent className="pt-4 space-y-4">
+        {/* Header row */}
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <p className="font-semibold truncate">{order.moduleName}</p>
-            <p className="text-xs text-muted-foreground">{order.moduleKey}</p>
+            <p className="font-semibold truncate">{order.packageName}</p>
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
+              <Badge variant="outline" className="text-xs capitalize">
+                {order.category}
+              </Badge>
+              <Badge variant="outline" className="text-xs">
+                {order.billingType === "monthly" ? "Monthly" : "One-time"}
+              </Badge>
+              <StatusBadge status={order.status} />
+            </div>
           </div>
-          <StatusBadge status={order.status} />
         </div>
 
-        <p className="text-sm text-muted-foreground">{statusMessage(order.status)}</p>
-
-        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-          <div>
-            <span className="text-muted-foreground">Plan: </span>
-            <Badge variant="outline" className="capitalize text-xs">
-              {order.planType}
-            </Badge>
-          </div>
+        {/* Details grid */}
+        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
           <div>
             <span className="text-muted-foreground">Amount: </span>
             <span className="font-semibold">PKR {order.amount.toLocaleString()}</span>
           </div>
           <div>
             <span className="text-muted-foreground">TRX ID: </span>
-            <span className="font-mono text-xs">{maskedTxn}</span>
+            <span className="font-mono text-xs">{order.txnId}</span>
           </div>
           <div>
             <span className="text-muted-foreground">Submitted: </span>
             <span className="text-xs">{submittedDate}</span>
           </div>
-          {order.orderToken && (
-            <div className="col-span-2">
-              <span className="text-muted-foreground">Token: </span>
-              <span className="font-mono text-xs break-all">{order.orderToken}</span>
-            </div>
-          )}
+          <div>
+            <span className="text-muted-foreground">Last updated: </span>
+            <span className="text-xs">{updatedDate}</span>
+          </div>
+          <div className="col-span-2">
+            <span className="text-muted-foreground">Subscription: </span>
+            <span className="text-xs">{subPeriod}</span>
+          </div>
+          <div className="col-span-2">
+            <span className="text-muted-foreground">Token: </span>
+            <span className="font-mono text-xs break-all">{order.orderToken}</span>
+          </div>
         </div>
 
-        {order.status === "approved" && (
-          <div className="rounded-lg bg-green-50 border border-green-200 p-2 text-sm text-green-700 font-medium">
-            Module Unlocked ✅ — Access is now active on your device.
+        {/* Admin remarks */}
+        {order.adminRemarks && (
+          <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800">
+            <p className="font-medium mb-0.5">Admin remarks</p>
+            <p>{order.adminRemarks}</p>
           </div>
         )}
 
-        <a
-          href={`https://wa.me/923173712950?text=${waMessage}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 text-sm text-green-600 hover:underline"
-        >
-          💬 Contact Support on WhatsApp
-        </a>
+        {/* Timeline */}
+        <div>
+          <p className="text-sm font-medium mb-3">Status Timeline</p>
+          <Timeline order={order} />
+        </div>
+
+        {/* WhatsApp support for rejected/expired/cancelled */}
+        {showWhatsApp && (
+          <a
+            href={`https://wa.me/923173712950?text=${waText}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 text-sm text-green-600 hover:underline"
+          >
+            <MessageCircle className="w-4 h-4" />
+            Contact Support on WhatsApp
+          </a>
+        )}
       </CardContent>
     </Card>
   );
@@ -117,18 +327,32 @@ export default function TrackSubscriptionPage() {
   const [submittedEmail, setSubmittedEmail] = useState("");
   const [searched, setSearched] = useState(false);
 
-  const { orders, loading } = useMyOrders(submittedEmail, submittedToken || undefined);
+  // useMyPackageOrders provides the query + Supabase Realtime (live updates on
+  // admin approval) + cleanup via supabase.removeChannel.
+  const email = searchType === "email" ? submittedEmail : "";
+  const orderToken = searchType === "token" ? submittedToken : undefined;
+  const { orders, loading, refresh } = useMyPackageOrders(email, orderToken);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
+    const v = inputValue.trim();
+    if (!v) return;
     if (searchType === "token") {
-      setSubmittedToken(inputValue.trim());
+      setSubmittedToken(v);
       setSubmittedEmail("");
     } else {
-      setSubmittedEmail(inputValue.trim());
+      setSubmittedEmail(v);
       setSubmittedToken("");
     }
     setSearched(true);
+  };
+
+  const switchTab = (t: "token" | "email") => {
+    setSearchType(t);
+    setInputValue("");
+    setSubmittedToken("");
+    setSubmittedEmail("");
+    setSearched(false);
   };
 
   return (
@@ -141,9 +365,9 @@ export default function TrackSubscriptionPage() {
               <Package className="w-7 h-7 text-orange-500" />
             </div>
           </div>
-          <h1 className="text-2xl font-bold">Track Your Module Order</h1>
+          <h1 className="text-2xl font-bold">Track Your Plan Order</h1>
           <p className="text-sm text-muted-foreground">
-            Enter your order token or email to check your purchase status
+            Enter your order token or email to check your subscription status
           </p>
         </div>
 
@@ -160,7 +384,7 @@ export default function TrackSubscriptionPage() {
             <div className="flex rounded-lg border overflow-hidden text-sm">
               <button
                 type="button"
-                onClick={() => { setSearchType("token"); setInputValue(""); }}
+                onClick={() => switchTab("token")}
                 className={`flex-1 py-2 transition-colors ${
                   searchType === "token"
                     ? "bg-orange-500 text-white font-medium"
@@ -171,7 +395,7 @@ export default function TrackSubscriptionPage() {
               </button>
               <button
                 type="button"
-                onClick={() => { setSearchType("email"); setInputValue(""); }}
+                onClick={() => switchTab("email")}
                 className={`flex-1 py-2 transition-colors ${
                   searchType === "email"
                     ? "bg-orange-500 text-white font-medium"
@@ -209,8 +433,7 @@ export default function TrackSubscriptionPage() {
         {/* Results */}
         {searched && loading && (
           <div className="space-y-3">
-            <Skeleton className="h-32 rounded-xl" />
-            <Skeleton className="h-32 rounded-xl" />
+            <Skeleton className="h-40 rounded-xl" />
           </div>
         )}
 
@@ -224,9 +447,15 @@ export default function TrackSubscriptionPage() {
 
         {searched && !loading && orders.length > 0 && (
           <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              Found {orders.length} order{orders.length > 1 ? "s" : ""}
-            </p>
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">
+                Found {orders.length} order{orders.length > 1 ? "s" : ""} · updates live
+              </p>
+              <Button variant="outline" size="sm" className="gap-1" onClick={refresh}>
+                <RefreshCw className="w-3.5 h-3.5" />
+                Refresh
+              </Button>
+            </div>
             {orders.map((order) => (
               <OrderCard key={order.id} order={order} />
             ))}

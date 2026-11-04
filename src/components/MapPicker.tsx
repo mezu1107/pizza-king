@@ -29,6 +29,7 @@ interface MapPickerProps {
   onChange?: (lat: number, lng: number) => void;
   extras?: ExtraCircle[];
   zoom?: number;
+  scrollWheelZoom?: boolean;
 }
 
 const MapPicker = ({
@@ -41,6 +42,7 @@ const MapPicker = ({
   onChange,
   extras = [],
   zoom = 13,
+  scrollWheelZoom = true,
 }: MapPickerProps) => {
   const mapEl = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -55,6 +57,7 @@ const MapPicker = ({
   const center = useMemo<[number, number]>(() => [safeLat, safeLng], [safeLat, safeLng]);
   const initialCenterRef = useRef(center);
   const initialZoomRef = useRef(zoom);
+  const scrollWheelZoomRef = useRef(scrollWheelZoom);
 
   useEffect(() => {
     onChangeRef.current = onChange;
@@ -64,7 +67,7 @@ const MapPicker = ({
   useEffect(() => {
     if (!mapEl.current || mapRef.current) return;
 
-    const map = L.map(mapEl.current, { scrollWheelZoom: true }).setView(
+    const map = L.map(mapEl.current, { scrollWheelZoom: scrollWheelZoomRef.current }).setView(
       initialCenterRef.current,
       initialZoomRef.current
     );

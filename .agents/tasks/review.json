@@ -1,0 +1,41 @@
+﻿{
+  "verdict": "CHANGES_REQUESTED",
+  "findings": [
+    {
+      "id": "F001",
+      "severity": "HIGH",
+      "label": "Fully open RLS write policies",
+      "description": "module_prices allows any anonymous user to upsert prices. module_orders allows any anonymous user to update any row status to approved, meaning a buyer can approve their own order via the Supabase REST API using the anon key visible in the client bundle.",
+      "action": "Restrict write policies to a server-side function or shared secret. At minimum change module_orders update policy so buyers cannot self-approve."
+    },
+    {
+      "id": "F002",
+      "severity": "HIGH",
+      "label": "Hardcoded admin credentials in source bundle",
+      "description": "ADMIN_EMAIL and ADMIN_PASSWORD are plaintext constants in SubscriptionsPage.tsx shipped in the Vite bundle. The sessionStorage auth flag is bypassable via DevTools.",
+      "action": "Move credentials to VITE_ environment variables or replace with Supabase Auth."
+    },
+    {
+      "id": "F003",
+      "severity": "HIGH",
+      "label": "approveOrder does not unlock for buyer",
+      "description": "handleApprove calls unlockModule which writes to admin localStorage only. The buyers LockedRoute reads their own localStorage which is unaffected.",
+      "action": "Query module_orders for approved orders on buyer app load and call unlockModule for each approved entry."
+    },
+    {
+      "id": "F004",
+      "severity": "MEDIUM",
+      "label": "Screenshot base64 stored in DB rows",
+      "description": "Payment screenshots are stored as full base64 data URLs in screenshot_data_url column. A JPEG becomes 1+ MB per row fetched on every 30s refresh.",
+      "action": "Use Supabase Storage and store only the public URL in the existing screenshot_url column."
+    },
+    {
+      "id": "F005",
+      "severity": "LOW",
+      "label": "useMyOrders fragile query chain cast",
+      "description": "The query is reassigned via double unknown cast for conditional .eq() filtering. Brittle against Supabase client updates.",
+      "action": "Use a conditional single .eq() call without intermediate reassignment."
+    }
+  ],
+  "reviewDoc": "c:\\\\Users\\\\JalipEmpire\\\\Downloads\\\\pizza-king-main\\\\.agents\\\\tasks\\\\code-review.md"
+}

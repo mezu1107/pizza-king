@@ -367,7 +367,7 @@ const AdminDeliveryZones = () => {
 
         {/* Add/Edit dialog */}
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto" style={{ scrollBehavior: "smooth" }}>
             <DialogHeader>
               <DialogTitle>
                 {editId ? "Edit Delivery Area" : "Add Delivery Area"}
@@ -451,7 +451,8 @@ const AdminDeliveryZones = () => {
                 lng={form.lng}
                 radiusKm={form.radius_km}
                 onChange={(lat, lng) => setForm({ ...form, lat, lng })}
-                height="300px"
+                height="280px"
+                scrollWheelZoom={false}
               />
 
               <div className="flex items-center justify-between">
