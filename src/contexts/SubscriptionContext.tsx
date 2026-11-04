@@ -64,7 +64,70 @@ export const MODULES: ModuleDefinition[] = [
   { key: "/rider/settings", name: "Settings", group: "rider", free: false },
 ];
 
+// Pricing & Plans — full expanded module list per plan_key. A higher tier
+// includes every module from lower tiers in the same category (expanded, not
+// computed). Mirrors the package_modules seed in supabase-setup.sql.
+export const PLAN_MODULES: Record<string, string[]> = {
+  admin_starter: ["/admin/deals", "/admin/categories", "/admin/coupons"],
+  admin_growth: [
+    "/admin/deals",
+    "/admin/categories",
+    "/admin/coupons",
+    "/admin/customers",
+    "/admin/reviews",
+    "/admin/delivery-zones",
+  ],
+  admin_enterprise: [
+    "/admin/deals",
+    "/admin/categories",
+    "/admin/coupons",
+    "/admin/customers",
+    "/admin/reviews",
+    "/admin/delivery-zones",
+    "/admin/riders",
+    "/admin/settings",
+  ],
+  rider_essential: ["/rider/map", "/rider/earnings", "/rider/history"],
+  rider_professional: [
+    "/rider/map",
+    "/rider/earnings",
+    "/rider/history",
+    "/rider/wallet",
+    "/rider/schedule",
+    "/rider/notifications",
+    "/rider/performance",
+  ],
+  rider_elite: [
+    "/rider/map",
+    "/rider/earnings",
+    "/rider/history",
+    "/rider/wallet",
+    "/rider/schedule",
+    "/rider/notifications",
+    "/rider/performance",
+    "/rider/chat",
+    "/rider/reviews",
+    "/rider/documents",
+    "/rider/help",
+    "/rider/settings",
+  ],
+};
+
+// An active (approved) package plan owned by this device. Stored separately from
+// the legacy pizza_king_active_plans shape so the existing getPlan path is left
+// untouched.
+export interface ActivePlan {
+  planKey: string;
+  category: "admin" | "rider";
+  billingType: "monthly" | "one_time";
+  packageName: string;
+  orderId?: string;
+  subscriptionStart?: string | null;
+  subscriptionEnd?: string | null;
+}
+
 const STORAGE_KEY = "pizza_king_modules";
+const ACTIVE_PACKAGES_KEY = "pizza_king_active_packages";
 
 interface SubscriptionContextType {
   modules: ModuleDefinition[];
@@ -72,6 +135,11 @@ interface SubscriptionContextType {
   isModuleLocked: (key: string) => boolean;
   unlockModule: (key: string) => void;
   lockModule: (key: string) => void;
+  // Pricing & Plans (package subscriptions)
+  activePlans: ActivePlan[];
+  unlockPackageModules: (planKey: string) => void;
+  addActivePlan: (order: ActivePlan) => void;
+  hasActivePlan: (category: "admin" | "rider") => boolean;
 }
 
 const SubscriptionContext = createContext<SubscriptionContextType | undefined>(undefined);
@@ -105,9 +173,52 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
     setUnlockedModules((prev) => prev.filter((k) => k !== key));
   };
 
+  // ── Pricing & Plans: active package plans (separate localStorage key) ──
+  const [activePlans, setActivePlans] = useState<ActivePlan[]>(() => {
+    try {
+      const stored = localStorage.getItem(ACTIVE_PACKAGES_KEY);
+      return stored ? (JSON.parse(stored) as ActivePlan[]) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem(ACTIVE_PACKAGES_KEY, JSON.stringify(activePlans));
+  }, [activePlans]);
+
+  // Unlock every module that the given plan grants access to.
+  const unlockPackageModules = (planKey: string) => {
+    const modules = PLAN_MODULES[planKey];
+    if (!modules) return;
+    for (const key of modules) unlockModule(key);
+  };
+
+  // Record an approved plan, persist it, and unlock its modules. Avoids
+  // duplicate entries for the same plan_key.
+  const addActivePlan = (order: ActivePlan) => {
+    setActivePlans((prev) =>
+      prev.some((p) => p.planKey === order.planKey) ? prev : [...prev, order]
+    );
+    unlockPackageModules(order.planKey);
+  };
+
+  const hasActivePlan = (category: "admin" | "rider"): boolean =>
+    activePlans.some((p) => p.category === category);
+
   return (
     <SubscriptionContext.Provider
-      value={{ modules: MODULES, unlockedModules, isModuleLocked, unlockModule, lockModule }}
+      value={{
+        modules: MODULES,
+        unlockedModules,
+        isModuleLocked,
+        unlockModule,
+        lockModule,
+        activePlans,
+        unlockPackageModules,
+        addActivePlan,
+        hasActivePlan,
+      }}
     >
       {children}
     </SubscriptionContext.Provider>
