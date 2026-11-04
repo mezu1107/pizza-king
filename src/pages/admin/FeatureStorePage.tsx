@@ -30,14 +30,16 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Sheet,
   SheetContent,
   SheetHeader,
   SheetTitle,
-  SheetTrigger,
 } from "@/components/ui/sheet";
 import { MODULE_PRICES, MODULES, useSubscription } from "@/contexts/SubscriptionContext";
+import { useModulePrices } from "@/hooks/useModulePrices";
+import type { ModulePrice } from "@/hooks/useModulePrices";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -209,14 +211,15 @@ interface ModuleCardProps {
   moduleKey: string;
   cart: CartItem[];
   onAddToCart: (item: CartItem) => void;
+  prices: Record<string, ModulePrice>;
 }
 
-function ModuleCard({ moduleKey, cart, onAddToCart }: ModuleCardProps) {
+function ModuleCard({ moduleKey, cart, onAddToCart, prices }: ModuleCardProps) {
   const { isModuleLocked } = useSubscription();
   const [selectedPlan, setSelectedPlan] = useState<"one-time" | "monthly">("one-time");
   const navigate = useNavigate();
 
-  const price = MODULE_PRICES[moduleKey];
+  const price = prices[moduleKey] ?? MODULE_PRICES[moduleKey];
   const mod = MODULES.find((m) => m.key === moduleKey);
   const Icon = getModuleIcon(moduleKey);
   const locked = isModuleLocked(moduleKey);
@@ -458,6 +461,7 @@ export default function FeatureStorePage() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [filter, setFilter] = useState<FilterTab>("all");
   const [cartOpen, setCartOpen] = useState(false);
+  const { prices, loading: pricesLoading } = useModulePrices();
 
   const paidModules = MODULES.filter((m) => !m.free);
   const freeModules = MODULES.filter((m) => m.free);
@@ -572,16 +576,25 @@ export default function FeatureStorePage() {
                 Unlock powerful features to grow your business
               </p>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredPaid.map((mod) => (
-                <ModuleCard
-                  key={mod.key}
-                  moduleKey={mod.key}
-                  cart={cart}
-                  onAddToCart={addToCart}
-                />
-              ))}
-            </div>
+            {pricesLoading ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {[0, 1, 2, 3, 4, 5].map((i) => (
+                  <Skeleton key={i} className="h-64 rounded-xl" />
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {filteredPaid.map((mod) => (
+                  <ModuleCard
+                    key={mod.key}
+                    moduleKey={mod.key}
+                    cart={cart}
+                    onAddToCart={addToCart}
+                    prices={prices}
+                  />
+                ))}
+              </div>
+            )}
           </section>
         )}
 

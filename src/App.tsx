@@ -28,6 +28,7 @@ import TableMenuPage from "./pages/TableMenuPage";
 import AdminDineIn from "./pages/admin/AdminDineIn";
 import AdminRiderManage from "./pages/admin/AdminRiderManage";
 import UnlockPage from "./pages/UnlockPage";
+import TrackSubscriptionPage from "./pages/TrackSubscriptionPage";
 import MobileBottomNav from "./components/MobileBottomNav";
 
 // Admin pages
@@ -150,6 +151,7 @@ const AnimatedRoutes = () => {
         <Route path="/rider/profile" element={<RiderProfile />} />
 
         <Route path="/unlock" element={<UnlockPage />} />
+        <Route path="/track-my-order" element={<PageTransition><TrackSubscriptionPage /></PageTransition>} />
 
         <Route path="*" element={<PageTransition><NotFound /></PageTransition>} />
       </Routes>

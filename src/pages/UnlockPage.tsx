@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { MODULE_PRICES } from "@/contexts/SubscriptionContext";
+import { insertModuleOrder } from "@/hooks/useModuleOrders";
 
 const ORDERS_KEY = "pizza_king_orders";
 
@@ -33,6 +34,7 @@ export default function UnlockPage() {
   const [screenshotFile, setScreenshotFile] = useState<File | null>(null);
   const [formError, setFormError] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const [orderToken, setOrderToken] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const oneTimePrice = priceInfo?.oneTime ?? 2500;
@@ -94,6 +96,24 @@ export default function UnlockPage() {
       localStorage.setItem(ORDERS_KEY, JSON.stringify([order]));
     }
 
+    // Also insert into Supabase
+    try {
+      const result = await insertModuleOrder({
+        moduleKey,
+        moduleName: displayName,
+        planType: selectedPlan,
+        amount,
+        buyerName: form.buyerName.trim(),
+        buyerEmail: form.buyerEmail.trim(),
+        buyerPhone: form.buyerPhone.trim(),
+        txnId: form.txnId.trim(),
+        screenshotDataUrl,
+      });
+      if (result) setOrderToken(result.orderToken);
+    } catch {
+      // Non-fatal: localStorage backup already saved
+    }
+
     setSubmitted(true);
 
     const waText = encodeURIComponent(
@@ -119,6 +139,20 @@ export default function UnlockPage() {
             <p className="text-sm text-muted-foreground bg-muted rounded-lg p-3">
               Our team will verify your payment within 24 hours and unlock your module.
             </p>
+            {orderToken && (
+              <div className="bg-muted rounded-lg p-3 text-sm space-y-1 text-left">
+                <p className="font-medium">Your Order Token:</p>
+                <p className="font-mono text-xs break-all">{orderToken}</p>
+                <p className="text-xs text-muted-foreground">Use this to track your order status.</p>
+              </div>
+            )}
+            <Button
+              variant="link"
+              className="text-orange-600 w-full"
+              onClick={() => navigate("/track-my-order")}
+            >
+              Track My Order →
+            </Button>
             <Button variant="outline" onClick={() => navigate(-1)} className="w-full">
               <ArrowLeft className="w-4 h-4 mr-2" />
               Go Back

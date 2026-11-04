@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { insertModuleOrder } from "@/hooks/useModuleOrders";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -50,6 +51,7 @@ export default function CheckoutPage() {
   const [screenshotFile, setScreenshotFile] = useState<File | null>(null);
   const [formError, setFormError] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const [orderTokens, setOrderTokens] = useState<string[]>([]);
 
   // Redirect if cart is empty
   useEffect(() => {
@@ -110,6 +112,32 @@ export default function CheckoutPage() {
       localStorage.setItem(ORDERS_KEY, JSON.stringify(newOrders));
     }
 
+    // Also insert into Supabase
+    try {
+      const insertResults = await Promise.allSettled(
+        cart.map((item) =>
+          insertModuleOrder({
+            moduleKey: item.moduleKey,
+            moduleName: item.moduleName,
+            planType: item.planType,
+            amount: item.price,
+            buyerName: form.buyerName.trim(),
+            buyerEmail: form.buyerEmail.trim(),
+            buyerPhone: form.buyerPhone.trim(),
+            txnId: form.txnId.trim(),
+            screenshotDataUrl,
+          })
+        )
+      );
+      const tokens = insertResults
+        .filter((r): r is PromiseFulfilledResult<{ orderToken: string } | null> => r.status === "fulfilled")
+        .map((r) => r.value?.orderToken)
+        .filter((t): t is string => !!t);
+      setOrderTokens(tokens);
+    } catch {
+      // Non-fatal: localStorage backup was already saved
+    }
+
     sessionStorage.removeItem(CART_SESSION_KEY);
     setCart([]);
     setSubmitted(true);
@@ -142,6 +170,22 @@ export default function CheckoutPage() {
             <div className="text-lg font-semibold text-orange-600">
               Total Paid: PKR {total.toLocaleString()}
             </div>
+            {orderTokens.length > 0 && (
+              <div className="text-sm bg-muted rounded p-3 space-y-1 text-left">
+                <p className="font-medium">Your Order Token(s):</p>
+                {orderTokens.map((t) => (
+                  <p key={t} className="font-mono text-xs break-all">{t}</p>
+                ))}
+                <p className="text-xs text-muted-foreground">Save these to track your order status.</p>
+              </div>
+            )}
+            <Button
+              variant="link"
+              className="text-orange-600 w-full"
+              onClick={() => navigate("/track-my-order")}
+            >
+              Track My Order →
+            </Button>
             <Button variant="outline" onClick={() => navigate("/feature-store")} className="w-full gap-2">
               <ShoppingBag className="w-4 h-4" />
               Back to Feature Store

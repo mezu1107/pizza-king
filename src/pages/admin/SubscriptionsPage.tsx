@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import AdminLayout from "@/components/admin/AdminLayout";
 import { useSubscription, MODULE_PRICES, MODULES } from "@/contexts/SubscriptionContext";
 import { Switch } from "@/components/ui/switch";
@@ -8,6 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/hooks/use-toast";
 import {
   Crown,
   Lock,
@@ -16,24 +19,11 @@ import {
   Clock,
   XCircle,
   ChevronRight,
+  Pencil,
 } from "lucide-react";
-
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-interface PendingOrder {
-  id: string;
-  moduleKey: string;
-  moduleName: string;
-  planType: "one-time" | "monthly";
-  amount: number;
-  buyerName: string;
-  buyerEmail: string;
-  buyerPhone: string;
-  txnId: string;
-  screenshotDataUrl: string | null;
-  status: "pending" | "approved" | "rejected";
-  submittedAt: string;
-}
+import { useModulePrices, updateModulePrice } from "@/hooks/useModulePrices";
+import { useModuleOrders, approveOrder, rejectOrder } from "@/hooks/useModuleOrders";
+import type { ModuleOrder } from "@/hooks/useModuleOrders";
 
 const ORDERS_KEY = "pizza_king_orders";
 const AUTH_KEY = "sub_auth";
@@ -108,41 +98,106 @@ function LoginForm({ onLogin }: { onLogin: () => void }) {
 
 function SubscriptionDashboard({ onLogout }: { onLogout: () => void }) {
   const { isModuleLocked, unlockModule, lockModule } = useSubscription();
-  const [orders, setOrders] = useState<PendingOrder[]>(() => {
-    try {
-      const stored = localStorage.getItem(ORDERS_KEY);
-      return stored ? (JSON.parse(stored) as PendingOrder[]) : [];
-    } catch {
-      return [];
-    }
-  });
+  const { toast } = useToast();
 
-  const saveOrders = (updated: PendingOrder[]) => {
-    setOrders(updated);
-    localStorage.setItem(ORDERS_KEY, JSON.stringify(updated));
+  // ── Prices from Supabase ──
+  const { prices, loading: pricesLoading, refetch: refetchPrices } = useModulePrices();
+
+  // ── Edit-price inline form ──
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({ oneTime: 0, monthly: 0, description: "" });
+  const [editSaving, setEditSaving] = useState(false);
+
+  const openEdit = (key: string) => {
+    const p = prices[key] ?? MODULE_PRICES[key];
+    setEditForm({
+      oneTime: p?.oneTime ?? 0,
+      monthly: p?.monthly ?? 0,
+      description: p?.description ?? "",
+    });
+    setEditingKey(key);
+  };
+
+  const handleSavePrice = async () => {
+    if (!editingKey) return;
+    setEditSaving(true);
+    try {
+      await updateModulePrice(editingKey, editForm.oneTime, editForm.monthly, editForm.description);
+      await refetchPrices();
+      toast({ title: "Price updated", description: "Module price saved successfully." });
+      setEditingKey(null);
+    } catch {
+      toast({ title: "Error", description: "Failed to save price.", variant: "destructive" });
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  // ── Orders from Supabase ──
+  const { orders: supabaseOrders, loading: ordersLoading, refresh: refreshOrders } = useModuleOrders();
+
+  // Merge localStorage fallback (read-only, for orders submitted before Supabase migration)
+  const [orders, setOrders] = useState<ModuleOrder[]>([]);
+  useEffect(() => {
+    const lsRaw = (() => {
+      try {
+        const raw = localStorage.getItem(ORDERS_KEY);
+        return raw ? (JSON.parse(raw) as unknown[]) : [];
+      } catch { return []; }
+    })();
+
+    if (supabaseOrders.length === 0 && lsRaw.length > 0) {
+      // Use localStorage items as fallback, normalized to ModuleOrder shape
+      const fallback: ModuleOrder[] = (lsRaw as Record<string, unknown>[]).map((o) => ({
+        id: String(o.id ?? ""),
+        orderToken: "",
+        moduleKey: String(o.moduleKey ?? ""),
+        moduleName: String(o.moduleName ?? ""),
+        planType: (o.planType as "one-time" | "monthly") ?? "one-time",
+        amount: Number(o.amount ?? 0),
+        buyerName: String(o.buyerName ?? ""),
+        buyerEmail: String(o.buyerEmail ?? ""),
+        buyerPhone: String(o.buyerPhone ?? ""),
+        txnId: String(o.txnId ?? ""),
+        screenshotDataUrl: (o.screenshotDataUrl as string | null) ?? null,
+        status: (o.status as "pending" | "approved" | "rejected") ?? "pending",
+        submittedAt: String(o.submittedAt ?? ""),
+        approvedAt: null,
+        notes: null,
+      }));
+      setOrders(fallback);
+    } else {
+      setOrders(supabaseOrders);
+    }
+  }, [supabaseOrders]);
+
+  // ── Approve / reject ──
+  const handleApprove = async (order: ModuleOrder) => {
+    try {
+      if (order.orderToken) {
+        await approveOrder(order.id);
+      }
+      unlockModule(order.moduleKey);
+      refreshOrders();
+    } catch {
+      toast({ title: "Error", description: "Could not approve order.", variant: "destructive" });
+    }
+  };
+
+  const handleReject = async (orderId: string, hasToken: boolean) => {
+    try {
+      if (hasToken) {
+        await rejectOrder(orderId);
+      }
+      refreshOrders();
+    } catch {
+      toast({ title: "Error", description: "Could not reject order.", variant: "destructive" });
+    }
   };
 
   const handleToggle = (key: string, checked: boolean) => {
-    if (checked) {
-      unlockModule(key);
-    } else {
-      lockModule(key);
-    }
-  };
-
-  const approveOrder = (order: PendingOrder) => {
-    unlockModule(order.moduleKey);
-    const updated = orders.map((o) =>
-      o.id === order.id ? { ...o, status: "approved" as const } : o
-    );
-    saveOrders(updated);
-  };
-
-  const rejectOrder = (orderId: string) => {
-    const updated = orders.map((o) =>
-      o.id === orderId ? { ...o, status: "rejected" as const } : o
-    );
-    saveOrders(updated);
+    if (checked) unlockModule(key);
+    else lockModule(key);
   };
 
   const pendingOrderKeys = orders
@@ -152,71 +207,157 @@ function SubscriptionDashboard({ onLogout }: { onLogout: () => void }) {
   const adminModules = MODULES.filter((m) => m.group === "admin");
   const riderModules = MODULES.filter((m) => m.group === "rider");
 
-  const renderModuleGrid = (mods: typeof MODULES) => (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-      {mods.map((mod) => {
-        const price = MODULE_PRICES[mod.key];
-        const locked = isModuleLocked(mod.key);
-        const hasPending = pendingOrderKeys.includes(mod.key);
-        return (
-          <Card key={mod.key} className="relative">
-            <CardHeader className="pb-2">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <CardTitle className="text-base leading-tight">{mod.name}</CardTitle>
-                  {price && (
-                    <p className="text-xs text-muted-foreground mt-1">{price.description}</p>
-                  )}
-                </div>
-                <div className="flex flex-col items-end gap-1 shrink-0">
-                  {mod.free ? (
-                    <Badge className="bg-green-100 text-green-700 border-green-200">Free</Badge>
-                  ) : (
-                    <Lock className="w-4 h-4 text-muted-foreground mt-0.5" />
-                  )}
-                  {hasPending && (
-                    <Badge variant="outline" className="text-yellow-600 border-yellow-400 text-xs">
-                      Pending
-                    </Badge>
-                  )}
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="pt-0 space-y-2">
-              {price && !mod.free && (
-                <div className="text-xs text-muted-foreground space-y-0.5">
-                  <p>
-                    One-time:{" "}
-                    <span className="font-semibold text-foreground">
-                      PKR {price.oneTime.toLocaleString()}
-                    </span>
-                  </p>
-                  <p>
-                    Monthly:{" "}
-                    <span className="font-semibold text-foreground">
-                      PKR {price.monthly.toLocaleString()}/mo
-                    </span>
-                  </p>
-                </div>
-              )}
-              <div className="flex items-center gap-2">
-                <Switch
-                  checked={!locked}
-                  onCheckedChange={(checked) => handleToggle(mod.key, checked)}
-                  disabled={mod.free}
-                />
-                <span className="text-sm text-muted-foreground">
-                  {mod.free ? "Always Enabled" : locked ? "Locked" : "Unlocked"}
-                </span>
-              </div>
-            </CardContent>
-          </Card>
-        );
-      })}
-    </div>
-  );
+  const renderModuleGrid = (mods: typeof MODULES) => {
+    if (pricesLoading) {
+      return (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <Skeleton key={i} className="h-40 rounded-xl" />
+          ))}
+        </div>
+      );
+    }
 
-  const statusBadge = (status: PendingOrder["status"]) => {
+    return (
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {mods.map((mod) => {
+          const price = prices[mod.key] ?? MODULE_PRICES[mod.key];
+          const locked = isModuleLocked(mod.key);
+          const hasPending = pendingOrderKeys.includes(mod.key);
+          const isEditing = editingKey === mod.key;
+
+          return (
+            <Card key={mod.key} className="relative">
+              <CardHeader className="pb-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <CardTitle className="text-base leading-tight">{mod.name}</CardTitle>
+                    {price && (
+                      <p className="text-xs text-muted-foreground mt-1">{price.description}</p>
+                    )}
+                  </div>
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    {mod.free ? (
+                      <Badge className="bg-green-100 text-green-700 border-green-200">Free</Badge>
+                    ) : (
+                      <Lock className="w-4 h-4 text-muted-foreground mt-0.5" />
+                    )}
+                    {hasPending && (
+                      <Badge variant="outline" className="text-yellow-600 border-yellow-400 text-xs">
+                        Pending
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="pt-0 space-y-2">
+                {price && !mod.free && !isEditing && (
+                  <div className="text-xs text-muted-foreground space-y-0.5">
+                    <p>
+                      One-time:{" "}
+                      <span className="font-semibold text-foreground">
+                        PKR {price.oneTime.toLocaleString()}
+                      </span>
+                    </p>
+                    <p>
+                      Monthly:{" "}
+                      <span className="font-semibold text-foreground">
+                        PKR {price.monthly.toLocaleString()}/mo
+                      </span>
+                    </p>
+                  </div>
+                )}
+
+                {/* Inline edit form */}
+                {isEditing && (
+                  <div className="space-y-2 border rounded-lg p-2 bg-muted/30">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <Label className="text-xs">One-time (PKR)</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          value={editForm.oneTime}
+                          onChange={(e) =>
+                            setEditForm((f) => ({ ...f, oneTime: Number(e.target.value) }))
+                          }
+                          className="h-8 text-sm"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Monthly (PKR)</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          value={editForm.monthly}
+                          onChange={(e) =>
+                            setEditForm((f) => ({ ...f, monthly: Number(e.target.value) }))
+                          }
+                          className="h-8 text-sm"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Description</Label>
+                      <Textarea
+                        value={editForm.description}
+                        onChange={(e) =>
+                          setEditForm((f) => ({ ...f, description: e.target.value }))
+                        }
+                        className="text-sm min-h-0 h-16 resize-none"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        className="flex-1 h-7 text-xs bg-orange-500 hover:bg-orange-600"
+                        disabled={editSaving}
+                        onClick={handleSavePrice}
+                      >
+                        {editSaving ? "Saving…" : "Save"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="flex-1 h-7 text-xs"
+                        onClick={() => setEditingKey(null)}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-2">
+                  <Switch
+                    checked={!locked}
+                    onCheckedChange={(checked) => handleToggle(mod.key, checked)}
+                    disabled={mod.free}
+                  />
+                  <span className="text-sm text-muted-foreground flex-1">
+                    {mod.free ? "Always Enabled" : locked ? "Locked" : "Unlocked"}
+                  </span>
+                  {!mod.free && !isEditing && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2 text-xs gap-1"
+                      onClick={() => openEdit(mod.key)}
+                    >
+                      <Pencil className="w-3 h-3" />
+                      Edit Price
+                    </Button>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const statusBadge = (status: ModuleOrder["status"]) => {
     if (status === "pending")
       return (
         <Badge variant="outline" className="text-yellow-600 border-yellow-400">
@@ -283,7 +424,13 @@ function SubscriptionDashboard({ onLogout }: { onLogout: () => void }) {
 
           {/* Pending Orders */}
           <TabsContent value="orders" className="pt-4">
-            {orders.length === 0 ? (
+            {ordersLoading ? (
+              <div className="space-y-4">
+                {[0, 1, 2].map((i) => (
+                  <Skeleton key={i} className="h-40 rounded-xl" />
+                ))}
+              </div>
+            ) : orders.length === 0 ? (
               <div className="text-center text-muted-foreground py-16">
                 <Clock className="w-12 h-12 mx-auto mb-3 opacity-30" />
                 <p>No orders submitted yet.</p>
@@ -297,6 +444,11 @@ function SubscriptionDashboard({ onLogout }: { onLogout: () => void }) {
                         <div>
                           <p className="font-semibold">{order.moduleName}</p>
                           <p className="text-xs text-muted-foreground">{order.moduleKey}</p>
+                          {order.orderToken && (
+                            <p className="text-xs text-muted-foreground font-mono">
+                              Token: {order.orderToken}
+                            </p>
+                          )}
                         </div>
                         {statusBadge(order.status)}
                       </div>
@@ -328,19 +480,35 @@ function SubscriptionDashboard({ onLogout }: { onLogout: () => void }) {
                         </div>
                         <div className="col-span-2">
                           <span className="text-muted-foreground">Submitted: </span>
-                          <span>{new Date(order.submittedAt).toLocaleString()}</span>
+                          <span>{order.submittedAt ? new Date(order.submittedAt).toLocaleString() : "—"}</span>
                         </div>
                       </div>
 
                       {order.screenshotDataUrl && (
-                        <a
-                          href={order.screenshotDataUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
-                        >
-                          View Screenshot <ChevronRight className="w-3 h-3" />
-                        </a>
+                        <div className="space-y-1">
+                          {order.screenshotDataUrl.startsWith("data:") ? (
+                            <a
+                              href={order.screenshotDataUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              <img
+                                src={order.screenshotDataUrl}
+                                alt="Payment screenshot"
+                                className="h-20 w-auto rounded object-cover cursor-pointer border"
+                              />
+                            </a>
+                          ) : (
+                            <a
+                              href={order.screenshotDataUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
+                            >
+                              View Screenshot <ChevronRight className="w-3 h-3" />
+                            </a>
+                          )}
+                        </div>
                       )}
 
                       {order.status === "pending" && (
@@ -348,7 +516,7 @@ function SubscriptionDashboard({ onLogout }: { onLogout: () => void }) {
                           <Button
                             size="sm"
                             className="bg-green-600 hover:bg-green-700 text-white gap-1"
-                            onClick={() => approveOrder(order)}
+                            onClick={() => handleApprove(order)}
                           >
                             <CheckCircle className="w-4 h-4" />
                             Approve
@@ -357,7 +525,7 @@ function SubscriptionDashboard({ onLogout }: { onLogout: () => void }) {
                             size="sm"
                             variant="destructive"
                             className="gap-1"
-                            onClick={() => rejectOrder(order.id)}
+                            onClick={() => handleReject(order.id, !!order.orderToken)}
                           >
                             <XCircle className="w-4 h-4" />
                             Reject
