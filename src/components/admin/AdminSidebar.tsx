@@ -51,6 +51,7 @@ const managementItems = [
   { title: "Delivery Zones", url: "/admin/delivery-zones", icon: MapPin },
   { title: "Reviews", url: "/admin/reviews", icon: Star },
   { title: "Settings", url: "/admin/settings", icon: Settings },
+  { title: "Feature Store", url: "/feature-store", icon: ShoppingBag },
 ];
 
 export function AdminSidebar() {

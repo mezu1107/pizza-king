@@ -44,6 +44,8 @@ import AdminRiders from "./pages/admin/AdminRiders";
 import AdminDeliveryZones from "./pages/admin/AdminDeliveryZones";
 import AdminCoupons from "./pages/admin/AdminCoupons";
 import SubscriptionsPage from "./pages/admin/SubscriptionsPage";
+import FeatureStorePage from "./pages/admin/FeatureStorePage";
+import CheckoutPage from "./pages/admin/CheckoutPage";
 
 // POS pages
 import POSTerminal from "./pages/pos/POSTerminal";
@@ -119,6 +121,8 @@ const AnimatedRoutes = () => {
         <Route path="/admin/settings" element={<LockedRoute moduleKey="/admin/settings"><AdminSettings /></LockedRoute>} />
         <Route path="/admin/dine-in" element={<AdminDineIn />} />
         <Route path="/admin/subscriptions" element={<SubscriptionsPage />} />
+        <Route path="/feature-store" element={<FeatureStorePage />} />
+        <Route path="/checkout" element={<CheckoutPage />} />
         <Route path="/table/:code" element={<TableMenuPage />} />
 
         {/* POS routes */}
