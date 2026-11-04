@@ -1,632 +1,312 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  ShoppingBag,
-  ShoppingCart,
-  Lock,
-  CheckCircle,
-  Zap,
-  Map,
-  DollarSign,
-  Users,
-  Settings,
-  Bell,
-  MessageSquare,
-  FileText,
-  TrendingUp,
-  Tag,
-  Bike,
-  MapPin,
-  TicketPercent,
-  Package,
-  X,
-  Star,
-  Wallet,
-  Clock,
-  History,
-  HelpCircle,
-} from "lucide-react";
+import { ShoppingBag, CheckCircle, Crown } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import { MODULE_PRICES, MODULES, useSubscription } from "@/contexts/SubscriptionContext";
-import { useModulePrices } from "@/hooks/useModulePrices";
-import type { ModulePrice } from "@/hooks/useModulePrices";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { usePackages, type Package } from "@/hooks/usePackages";
+import { useSubscription } from "@/contexts/SubscriptionContext";
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+type BillingType = "monthly" | "one_time";
 
-type CartItem = {
-  moduleKey: string;
-  moduleName: string;
-  planType: "one-time" | "monthly";
-  price: number;
-};
+// ─── Plan card ──────────────────────────────────────────────────────────────
 
-type FilterTab = "all" | "admin" | "rider";
-
-// ─── Module icon map ──────────────────────────────────────────────────────────
-
-function getModuleIcon(key: string) {
-  const iconMap: Record<string, React.ElementType> = {
-    "/admin/deals": Tag,
-    "/admin/categories": Package,
-    "/admin/coupons": TicketPercent,
-    "/admin/customers": Users,
-    "/admin/riders": Bike,
-    "/admin/delivery-zones": MapPin,
-    "/admin/reviews": Star,
-    "/admin/settings": Settings,
-    "/rider/map": Map,
-    "/rider/earnings": DollarSign,
-    "/rider/wallet": Wallet,
-    "/rider/history": History,
-    "/rider/schedule": Clock,
-    "/rider/notifications": Bell,
-    "/rider/chat": MessageSquare,
-    "/rider/reviews": Star,
-    "/rider/performance": TrendingUp,
-    "/rider/documents": FileText,
-    "/rider/help": HelpCircle,
-    "/rider/settings": Settings,
-  };
-  return iconMap[key] ?? Zap;
+interface PlanCardProps {
+  pkg: Package;
+  billing: BillingType;
+  activePlanKey: string | null;
+  activeTier: number | null;
+  inCart: boolean;
+  onBuy: (pkg: Package) => void;
 }
 
-// ─── Module features map ──────────────────────────────────────────────────────
+function PlanCard({
+  pkg,
+  billing,
+  activePlanKey,
+  activeTier,
+  inCart,
+  onBuy,
+}: PlanCardProps) {
+  const hasActive = activePlanKey != null;
+  const isCurrent = hasActive && pkg.planKey === activePlanKey;
+  const isUpgrade = hasActive && activeTier != null && pkg.tier > activeTier;
+  const isLower = hasActive && activeTier != null && pkg.tier < activeTier;
 
-const MODULE_FEATURES: Record<string, string[]> = {
-  "/admin/deals": [
-    "Create flash deals with time limits",
-    "Set percentage or fixed discounts",
-    "Schedule deals in advance",
-    "Deal performance analytics",
-  ],
-  "/admin/categories": [
-    "Custom category names & icons",
-    "Drag-and-drop ordering",
-    "Category-level visibility controls",
-    "Sub-category support",
-  ],
-  "/admin/coupons": [
-    "Generate unique coupon codes",
-    "Set usage limits per coupon",
-    "Minimum order value rules",
-    "Track redemption history",
-  ],
-  "/admin/customers": [
-    "Full customer profiles",
-    "Order history per customer",
-    "Customer segmentation",
-    "Export customer data",
-  ],
-  "/admin/riders": [
-    "Add & manage rider accounts",
-    "Assign orders to riders",
-    "Track rider availability",
-    "Rider performance overview",
-  ],
-  "/admin/delivery-zones": [
-    "Draw delivery zones on map",
-    "Zone-based delivery charges",
-    "Multiple zone support",
-    "Zone availability schedules",
-  ],
-  "/admin/reviews": [
-    "View all customer reviews",
-    "Respond to reviews publicly",
-    "Flag inappropriate reviews",
-    "Rating trend analytics",
-  ],
-  "/admin/settings": [
-    "Full app configuration",
-    "Branding & logo settings",
-    "Tax & fee configuration",
-    "Notification preferences",
-  ],
-  "/rider/map": [
-    "Real-time GPS location",
-    "Turn-by-turn navigation",
-    "Customer location pin",
-    "Route optimization",
-  ],
-  "/rider/earnings": [
-    "Daily & weekly earnings",
-    "Bonus tracking",
-    "Payout history",
-    "Earnings breakdown by order",
-  ],
-  "/rider/wallet": [
-    "Wallet balance overview",
-    "Withdraw to bank",
-    "Transaction history",
-    "Auto-credit on delivery",
-  ],
-  "/rider/history": [
-    "Complete delivery history",
-    "Filter by date range",
-    "Order details per delivery",
-    "Export history as PDF",
-  ],
-  "/rider/schedule": [
-    "Set weekly availability",
-    "Shift management",
-    "Swap shift requests",
-    "Attendance tracking",
-  ],
-  "/rider/notifications": [
-    "New order alerts",
-    "Zone updates",
-    "Bonus & promo notifications",
-    "System announcements",
-  ],
-  "/rider/chat": [
-    "Chat with support team",
-    "Media message support",
-    "Issue resolution tracking",
-    "Chat history",
-  ],
-  "/rider/reviews": [
-    "View customer ratings",
-    "Monthly rating averages",
-    "Feedback from customers",
-    "Performance badges",
-  ],
-  "/rider/performance": [
-    "Delivery success rate",
-    "Average delivery time",
-    "Weekly performance graphs",
-    "Compare with team averages",
-  ],
-  "/rider/documents": [
-    "Upload CNIC & license",
-    "Document status tracking",
-    "Renewal reminders",
-    "Secure PDF/image storage",
-  ],
-  "/rider/help": [
-    "FAQ & guides",
-    "Submit support tickets",
-    "Video tutorials",
-    "Live chat support access",
-  ],
-  "/rider/settings": [
-    "Profile & contact settings",
-    "Notification preferences",
-    "Language selection",
-    "Account security",
-  ],
-};
+  const price = billing === "monthly" ? pkg.monthlyPrice : pkg.oneTimePrice;
 
-// ─── Module Card ──────────────────────────────────────────────────────────────
-
-interface ModuleCardProps {
-  moduleKey: string;
-  cart: CartItem[];
-  onAddToCart: (item: CartItem) => void;
-  prices: Record<string, ModulePrice>;
-}
-
-function ModuleCard({ moduleKey, cart, onAddToCart, prices }: ModuleCardProps) {
-  const { isModuleLocked } = useSubscription();
-  const [selectedPlan, setSelectedPlan] = useState<"one-time" | "monthly">("one-time");
-  const navigate = useNavigate();
-
-  const price = prices[moduleKey] ?? MODULE_PRICES[moduleKey];
-  const mod = MODULES.find((m) => m.key === moduleKey);
-  const Icon = getModuleIcon(moduleKey);
-  const locked = isModuleLocked(moduleKey);
-  const features = MODULE_FEATURES[moduleKey] ?? [];
-
-  const inCart = cart.some(
-    (c) => c.moduleKey === moduleKey && c.planType === selectedPlan
-  );
-  const isUnlocked = !locked;
-
-  const currentPrice =
-    selectedPlan === "one-time" ? price.oneTime : price.monthly;
-
-  const handleAddToCart = () => {
-    if (inCart || isUnlocked) return;
-    onAddToCart({
-      moduleKey,
-      moduleName: price.name,
-      planType: selectedPlan,
-      price: currentPrice,
-    });
-  };
+  let button: React.ReactNode;
+  if (isCurrent) {
+    button = (
+      <Button disabled variant="outline" className="w-full text-green-600">
+        Current Plan
+      </Button>
+    );
+  } else if (isUpgrade) {
+    button = (
+      <Button
+        className="w-full bg-orange-500 hover:bg-orange-600 text-white"
+        disabled={inCart}
+        onClick={() => onBuy(pkg)}
+      >
+        {inCart ? "In Cart ✓" : "Upgrade"}
+      </Button>
+    );
+  } else if (isLower) {
+    button = (
+      <Button disabled variant="outline" className="w-full">
+        Included in current
+      </Button>
+    );
+  } else {
+    button = (
+      <Button
+        className="w-full bg-orange-500 hover:bg-orange-600 text-white"
+        disabled={inCart}
+        onClick={() => onBuy(pkg)}
+      >
+        {inCart ? "In Cart ✓" : "Buy Now"}
+      </Button>
+    );
+  }
 
   return (
-    <Card className="flex flex-col h-full border hover:border-orange-300 transition-colors">
+    <Card
+      className={`flex flex-col h-full transition-transform hover:scale-[1.02] ${
+        pkg.isPopular
+          ? "border-orange-300 shadow-md ring-1 ring-orange-200"
+          : "border"
+      }`}
+    >
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-2">
-          <div className="w-10 h-10 rounded-lg bg-orange-100 flex items-center justify-center shrink-0">
-            <Icon className="w-5 h-5 text-orange-600" />
-          </div>
-          {isUnlocked ? (
-            <Badge className="bg-green-100 text-green-700 border-green-200 shrink-0">
-              Active ✅
+          <div className="min-w-0">
+            <CardTitle className="text-base">{pkg.name}</CardTitle>
+            <Badge variant="outline" className="mt-1 text-xs">
+              Tier {pkg.tier}
             </Badge>
-          ) : (
-            <Badge variant="outline" className="text-orange-600 border-orange-300 shrink-0">
-              Locked 🔒
+          </div>
+          {pkg.isPopular && (
+            <Badge className="bg-orange-100 text-orange-700 border-orange-200 gap-1">
+              <Crown className="w-3 h-3" />
+              Most Popular
             </Badge>
           )}
         </div>
-        <CardTitle className="text-base mt-2">{price.name}</CardTitle>
-        <p className="text-sm text-muted-foreground">{price.description}</p>
+        <p className="text-sm text-muted-foreground mt-2">{pkg.description}</p>
       </CardHeader>
       <CardContent className="flex flex-col flex-1 gap-4">
+        {/* Price */}
+        <div className="text-center">
+          <span className="text-3xl font-bold text-foreground">
+            PKR {price.toLocaleString()}
+          </span>
+          {billing === "monthly" && (
+            <span className="text-sm text-muted-foreground">/mo</span>
+          )}
+          {billing === "one_time" && (
+            <span className="text-sm text-muted-foreground"> one-time</span>
+          )}
+        </div>
+
+        {/* Module count */}
+        <p className="text-xs text-center text-muted-foreground">
+          Includes {pkg.moduleKeys.length} module
+          {pkg.moduleKeys.length === 1 ? "" : "s"}
+        </p>
+
         {/* Features */}
         <ul className="space-y-1.5 flex-1">
-          {features.map((f) => (
-            <li key={f} className="flex items-start gap-2 text-sm text-muted-foreground">
+          {pkg.features.map((f, i) => (
+            <li
+              key={i}
+              className="flex items-start gap-2 text-sm text-muted-foreground"
+            >
               <CheckCircle className="w-3.5 h-3.5 text-green-500 shrink-0 mt-0.5" />
               {f}
             </li>
           ))}
+          {pkg.features.length === 0 && (
+            <li className="text-sm text-muted-foreground">No features listed.</li>
+          )}
         </ul>
 
-        {/* Plan toggle */}
-        <div className="flex rounded-lg border overflow-hidden text-sm">
-          <button
-            type="button"
-            onClick={() => setSelectedPlan("one-time")}
-            className={`flex-1 py-1.5 transition-colors ${
-              selectedPlan === "one-time"
-                ? "bg-orange-500 text-white font-medium"
-                : "bg-background hover:bg-muted text-muted-foreground"
-            }`}
-          >
-            One-time
-          </button>
-          <button
-            type="button"
-            onClick={() => setSelectedPlan("monthly")}
-            className={`flex-1 py-1.5 transition-colors ${
-              selectedPlan === "monthly"
-                ? "bg-orange-500 text-white font-medium"
-                : "bg-background hover:bg-muted text-muted-foreground"
-            }`}
-          >
-            Monthly
-          </button>
-        </div>
-
-        {/* Price */}
-        <div className="text-center">
-          <span className="text-2xl font-bold text-foreground">
-            PKR {currentPrice.toLocaleString()}
-          </span>
-          {selectedPlan === "monthly" && (
-            <span className="text-sm text-muted-foreground">/mo</span>
-          )}
-        </div>
-
-        {/* Action button */}
-        {isUnlocked ? (
-          <Button disabled variant="outline" className="w-full text-green-600">
-            Already Owned
-          </Button>
-        ) : inCart ? (
-          <Button disabled className="w-full bg-green-600 text-white">
-            In Cart ✓
-          </Button>
-        ) : (
-          <Button
-            className="w-full bg-orange-500 hover:bg-orange-600 text-white"
-            onClick={handleAddToCart}
-          >
-            <ShoppingCart className="w-4 h-4 mr-2" />
-            Add to Cart
-          </Button>
-        )}
-
-        {/* Quick buy link */}
-        {!isUnlocked && (
-          <button
-            type="button"
-            onClick={() =>
-              navigate(
-                `/unlock?module=${encodeURIComponent(moduleKey)}&name=${encodeURIComponent(price.name)}`
-              )
-            }
-            className="text-xs text-orange-600 hover:underline text-center"
-          >
-            Buy this module only →
-          </button>
-        )}
+        {button}
       </CardContent>
     </Card>
   );
 }
 
-// ─── Free Module Card ─────────────────────────────────────────────────────────
+// ─── Section ─────────────────────────────────────────────────────────────────
 
-function FreeModuleCard({ moduleKey }: { moduleKey: string }) {
-  const mod = MODULES.find((m) => m.key === moduleKey);
-  const Icon = getModuleIcon(moduleKey);
-  const name = mod?.name ?? moduleKey;
+interface SectionProps {
+  title: string;
+  subtitle: string;
+  category: "admin" | "rider";
+  packages: Package[];
+  billing: BillingType;
+  loading: boolean;
+  activePlanKey: string | null;
+  activeTier: number | null;
+  inCartKey: string | null;
+  onBuy: (pkg: Package) => void;
+}
+
+function PlanSection({
+  title,
+  subtitle,
+  category,
+  packages,
+  billing,
+  loading,
+  activePlanKey,
+  activeTier,
+  inCartKey,
+  onBuy,
+}: SectionProps) {
+  const list = packages.filter((p) => p.category === category);
 
   return (
-    <Card className="flex flex-col border-green-200 bg-green-50/40">
-      <CardContent className="pt-5 space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-green-100 flex items-center justify-center shrink-0">
-              <Icon className="w-4 h-4 text-green-600" />
-            </div>
-            <span className="font-medium text-sm">{name}</span>
-          </div>
-          <Badge className="bg-green-100 text-green-700 border-green-200 shrink-0">
-            Always Free
-          </Badge>
+    <section className="space-y-4">
+      <div>
+        <h2 className="text-lg font-semibold">{title}</h2>
+        <p className="text-sm text-muted-foreground">{subtitle}</p>
+      </div>
+      {loading ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {[0, 1, 2].map((i) => (
+            <Skeleton key={i} className="h-80 rounded-xl" />
+          ))}
         </div>
-        <Button disabled variant="outline" className="w-full text-xs h-8">
-          Already Included
-        </Button>
-      </CardContent>
-    </Card>
-  );
-}
-
-// ─── Cart Drawer ──────────────────────────────────────────────────────────────
-
-interface CartDrawerProps {
-  cart: CartItem[];
-  onRemove: (moduleKey: string, planType: string) => void;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onCheckout: () => void;
-}
-
-function CartDrawer({ cart, onRemove, open, onOpenChange, onCheckout }: CartDrawerProps) {
-  const total = cart.reduce((sum, item) => sum + item.price, 0);
-
-  return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full sm:max-w-md flex flex-col">
-        <SheetHeader>
-          <SheetTitle className="flex items-center gap-2">
-            <ShoppingCart className="w-5 h-5 text-orange-500" />
-            Your Cart ({cart.length})
-          </SheetTitle>
-        </SheetHeader>
-
-        {cart.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-3">
-            <ShoppingCart className="w-12 h-12 opacity-20" />
-            <p>Your cart is empty</p>
-          </div>
-        ) : (
-          <>
-            <div className="flex-1 overflow-y-auto space-y-3 py-4">
-              {cart.map((item) => (
-                <div
-                  key={`${item.moduleKey}-${item.planType}`}
-                  className="flex items-start justify-between gap-3 p-3 rounded-lg border bg-card"
-                >
-                  <div className="min-w-0">
-                    <p className="font-medium text-sm truncate">{item.moduleName}</p>
-                    <p className="text-xs text-muted-foreground capitalize">{item.planType}</p>
-                    <p className="text-sm font-semibold text-orange-600 mt-0.5">
-                      PKR {item.price.toLocaleString()}
-                      {item.planType === "monthly" && "/mo"}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => onRemove(item.moduleKey, item.planType)}
-                    className="text-muted-foreground hover:text-red-500 shrink-0"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              ))}
-            </div>
-
-            <div className="border-t pt-4 space-y-3">
-              <div className="flex justify-between font-semibold">
-                <span>Total</span>
-                <span className="text-orange-600">PKR {total.toLocaleString()}</span>
-              </div>
-              <Button
-                className="w-full bg-orange-500 hover:bg-orange-600 text-white"
-                onClick={onCheckout}
-              >
-                Proceed to Checkout →
-              </Button>
-              <Button variant="outline" className="w-full" onClick={() => onOpenChange(false)}>
-                Continue Shopping
-              </Button>
-            </div>
-          </>
-        )}
-      </SheetContent>
-    </Sheet>
+      ) : list.length === 0 ? (
+        <div className="text-center text-muted-foreground py-10 border rounded-lg border-dashed">
+          No plans available for this category.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {list.map((p) => (
+            <PlanCard
+              key={p.planKey}
+              pkg={p}
+              billing={billing}
+              activePlanKey={activePlanKey}
+              activeTier={activeTier}
+              inCart={inCartKey === p.planKey}
+              onBuy={onBuy}
+            />
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
+// Resolve the tier of a plan_key from the fetched package list (defensive).
+function findTier(packages: Package[], planKey: string): number | null {
+  const p = packages.find((x) => x.planKey === planKey);
+  return p ? p.tier : null;
+}
+
 export default function FeatureStorePage() {
   const navigate = useNavigate();
-  const [cart, setCart] = useState<CartItem[]>([]);
-  const [filter, setFilter] = useState<FilterTab>("all");
-  const [cartOpen, setCartOpen] = useState(false);
-  const { prices, loading: pricesLoading } = useModulePrices();
+  const { packages, loading } = usePackages();
+  const { hasActivePlan, activePlans } = useSubscription();
 
-  const paidModules = MODULES.filter((m) => !m.free);
-  const freeModules = MODULES.filter((m) => m.free);
-
-  const filteredPaid = paidModules.filter((m) => {
-    if (filter === "admin") return m.group === "admin";
-    if (filter === "rider") return m.group === "rider";
-    return true;
+  const [billing, setBilling] = useState<BillingType>("monthly");
+  const [cartKey, setCartKey] = useState<string | null>(() => {
+    try {
+      const raw = sessionStorage.getItem("feature_store_cart");
+      return raw ? (JSON.parse(raw).planKey as string) ?? null : null;
+    } catch {
+      return null;
+    }
   });
 
-  const filteredFree = freeModules.filter((m) => {
-    if (filter === "admin") return m.group === "admin";
-    if (filter === "rider") return m.group === "rider";
-    return true;
-  });
+  // Active plan per category (first match wins). hasActivePlan short-circuits
+  // the lookup when nothing is active in the category.
+  const activeFor = (category: "admin" | "rider") =>
+    hasActivePlan(category) ? activePlans.find((p) => p.category === category) ?? null : null;
 
-  const addToCart = (item: CartItem) => {
-    setCart((prev) => {
-      const exists = prev.some(
-        (c) => c.moduleKey === item.moduleKey && c.planType === item.planType
-      );
-      return exists ? prev : [...prev, item];
-    });
-  };
-
-  const removeFromCart = (moduleKey: string, planType: string) => {
-    setCart((prev) =>
-      prev.filter((c) => !(c.moduleKey === moduleKey && c.planType === planType))
+  const handleBuy = (pkg: Package) => {
+    // Amount is always the fetched package price for the selected billing —
+    // never client-fabricated.
+    const amount = billing === "monthly" ? pkg.monthlyPrice : pkg.oneTimePrice;
+    sessionStorage.setItem(
+      "feature_store_cart",
+      JSON.stringify({
+        planKey: pkg.planKey,
+        packageName: pkg.name,
+        category: pkg.category,
+        billingType: billing,
+        amount,
+      })
     );
-  };
-
-  const handleCheckout = () => {
-    sessionStorage.setItem("feature_store_cart", JSON.stringify(cart));
-    setCartOpen(false);
+    setCartKey(pkg.planKey);
     navigate("/checkout");
   };
 
-  const filterLabels: { value: FilterTab; label: string }[] = [
-    { value: "all", label: "All Modules" },
-    { value: "admin", label: "Admin Modules" },
-    { value: "rider", label: "Rider Modules" },
-  ];
+  const renderSection = (category: "admin" | "rider") => {
+    const active = activeFor(category);
+    return (
+      <PlanSection
+        title={category === "admin" ? "Restaurant Admin" : "Delivery Rider"}
+        subtitle={
+          category === "admin"
+            ? "Power up your restaurant with admin plans"
+            : "Equip your riders with pro delivery tools"
+        }
+        category={category}
+        packages={packages}
+        billing={billing}
+        loading={loading}
+        activePlanKey={active?.planKey ?? null}
+        activeTier={active ? findTier(packages, active.planKey) : null}
+        inCartKey={cartKey}
+        onBuy={handleBuy}
+      />
+    );
+  };
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Sticky header */}
+      {/* Sticky header with global billing toggle */}
       <div className="sticky top-0 z-30 bg-background/95 backdrop-blur border-b">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between gap-4">
+        <div className="max-w-7xl mx-auto px-4 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h1 className="text-xl font-bold flex items-center gap-2">
               <ShoppingBag className="w-5 h-5 text-orange-500" />
-              Feature Store
+              Pricing and Plans
             </h1>
-            <p className="text-xs text-muted-foreground hidden sm:block">
-              Expand your Pizza King capabilities
+            <p className="text-xs text-muted-foreground">
+              Choose a plan — monthly subscription or one-time purchase
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
-            {cart.length > 0 && (
-              <Button
-                className="bg-orange-500 hover:bg-orange-600 text-white gap-2"
-                onClick={() => setCartOpen(true)}
-              >
-                <ShoppingCart className="w-4 h-4" />
-                View Cart
-                <span className="bg-white text-orange-600 rounded-full w-5 h-5 text-xs flex items-center justify-center font-bold">
-                  {cart.length}
-                </span>
-              </Button>
-            )}
-            {cart.length === 0 && (
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => setCartOpen(true)}
-                className="relative"
-              >
-                <ShoppingCart className="w-4 h-4" />
-              </Button>
-            )}
-          </div>
+          <Tabs value={billing} onValueChange={(v) => setBilling(v as BillingType)}>
+            <TabsList>
+              <TabsTrigger value="monthly">Monthly</TabsTrigger>
+              <TabsTrigger value="one_time">One-time</TabsTrigger>
+            </TabsList>
+          </Tabs>
         </div>
       </div>
 
       {/* Content */}
-      <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
-        {/* Filter tabs */}
-        <div className="flex gap-2 flex-wrap">
-          {filterLabels.map((tab) => (
-            <button
-              key={tab.value}
-              type="button"
-              onClick={() => setFilter(tab.value)}
-              className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-                filter === tab.value
-                  ? "bg-orange-500 text-white"
-                  : "bg-muted text-muted-foreground hover:bg-muted/80"
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+      <div className="max-w-7xl mx-auto px-4 py-6 space-y-8">
+        {renderSection("admin")}
+        {renderSection("rider")}
 
-        {/* Premium modules */}
-        {filteredPaid.length > 0 && (
-          <section className="space-y-4">
-            <div>
-              <h2 className="text-lg font-semibold">Premium Modules</h2>
-              <p className="text-sm text-muted-foreground">
-                Unlock powerful features to grow your business
-              </p>
-            </div>
-            {pricesLoading ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {[0, 1, 2, 3, 4, 5].map((i) => (
-                  <Skeleton key={i} className="h-64 rounded-xl" />
-                ))}
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredPaid.map((mod) => (
-                  <ModuleCard
-                    key={mod.key}
-                    moduleKey={mod.key}
-                    cart={cart}
-                    onAddToCart={addToCart}
-                    prices={prices}
-                  />
-                ))}
-              </div>
-            )}
-          </section>
-        )}
-
-        {/* Free modules */}
-        {filteredFree.length > 0 && (
-          <>
-            <Separator />
-            <section className="space-y-4">
-              <div>
-                <h2 className="text-lg font-semibold">Included Free</h2>
-                <p className="text-sm text-muted-foreground">
-                  These modules are always available at no cost
-                </p>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredFree.map((mod) => (
-                  <FreeModuleCard key={mod.key} moduleKey={mod.key} />
-                ))}
-              </div>
-            </section>
-          </>
+        {!loading && packages.length === 0 && (
+          <div className="text-center text-muted-foreground py-16">
+            <ShoppingBag className="w-12 h-12 mx-auto mb-3 opacity-30" />
+            <p>No plans are available right now. Please check back later.</p>
+          </div>
         )}
       </div>
-
-      {/* Cart drawer */}
-      <CartDrawer
-        cart={cart}
-        onRemove={removeFromCart}
-        open={cartOpen}
-        onOpenChange={setCartOpen}
-        onCheckout={handleCheckout}
-      />
     </div>
   );
 }
