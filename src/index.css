@@ -1,0 +1,190 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap');
+@import url("https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Libre+Caslon+Text:wght@400;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap");
+@import url("https://unpkg.com/leaflet@1.9.4/dist/leaflet.css");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 35 60% 98%;
+    --foreground: 20 25% 15%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 20 25% 15%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 20 25% 15%;
+
+    --primary: 14 88% 55%;
+    --primary-foreground: 35 100% 98%;
+
+    --secondary: 35 50% 94%;
+    --secondary-foreground: 20 30% 18%;
+
+    --muted: 35 30% 95%;
+    --muted-foreground: 25 15% 42%;
+
+    --accent: 38 95% 58%;
+    --accent-foreground: 20 40% 14%;
+
+    /* Always-on gold highlight that stays visible over dark/light surfaces */
+    --brand-highlight: 43 96% 56%;
+    --brand-highlight-soft: 43 96% 70%;
+
+    --destructive: 0 75% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 70% 38%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 95% 50%;
+    --warning-foreground: 20 40% 14%;
+    --info: 210 80% 50%;
+    --info-foreground: 0 0% 100%;
+
+    --border: 30 30% 90%;
+    --input: 30 30% 90%;
+    --ring: 14 88% 55%;
+
+    --radius: 1rem;
+
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 20 25% 18%;
+    --sidebar-primary: 14 88% 55%;
+    --sidebar-primary-foreground: 35 100% 98%;
+    --sidebar-accent: 35 40% 96%;
+    --sidebar-accent-foreground: 14 70% 40%;
+    --sidebar-border: 30 30% 90%;
+    --sidebar-ring: 14 88% 55%;
+    --chart-1: 27 95% 60%;
+    --chart-2: 43 96% 56%;
+    --chart-3: 47 95% 53%;
+    --chart-4: 24 94% 53%;
+    --chart-5: 0 0% 45%;
+    --sidebar: 0 0% 98%;
+    --font-sans: 'Roboto', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, 'Noto Sans', sans-serif;
+    --font-serif: 'Libre Caslon Text', ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif;
+    --font-mono: 'Roboto Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+    --shadow-2xs: 0 1px 3px 0px hsl(0 0% 0% / 0.05);
+    --shadow-xs: 0 1px 3px 0px hsl(0 0% 0% / 0.05);
+    --shadow-sm: 0 1px 3px 0px hsl(0 0% 0% / 0.1), 0 1px 2px -1px hsl(0 0% 0% / 0.1);
+    --shadow: 0 1px 3px 0px hsl(0 0% 0% / 0.1), 0 1px 2px -1px hsl(0 0% 0% / 0.1);
+    --shadow-md: 0 1px 3px 0px hsl(0 0% 0% / 0.1), 0 2px 4px -1px hsl(0 0% 0% / 0.1);
+    --shadow-lg: 0 1px 3px 0px hsl(0 0% 0% / 0.1), 0 4px 6px -1px hsl(0 0% 0% / 0.1);
+    --shadow-xl: 0 1px 3px 0px hsl(0 0% 0% / 0.1), 0 8px 10px -1px hsl(0 0% 0% / 0.1);
+    --shadow-2xl: 0 1px 3px 0px hsl(0 0% 0% / 0.25);
+    --tracking-normal: 0em;
+    --spacing: 0.25rem;
+  }
+
+  .dark {
+    --background: 20 14% 7%;
+    --foreground: 35 30% 96%;
+
+    --card: 20 12% 11%;
+    --card-foreground: 35 30% 96%;
+
+    --popover: 20 12% 13%;
+    --popover-foreground: 35 30% 96%;
+
+    --primary: 14 88% 58%;
+    --primary-foreground: 35 100% 98%;
+
+    --secondary: 20 10% 18%;
+    --secondary-foreground: 35 30% 96%;
+
+    --muted: 20 10% 16%;
+    --muted-foreground: 35 15% 72%;
+
+    --accent: 38 90% 55%;
+    --accent-foreground: 20 40% 12%;
+
+    --brand-highlight: 43 96% 62%;
+    --brand-highlight-soft: 43 96% 75%;
+
+    --destructive: 0 75% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 65% 50%;
+    --success-foreground: 20 14% 7%;
+    --warning: 38 95% 58%;
+    --warning-foreground: 20 40% 12%;
+    --info: 210 80% 60%;
+    --info-foreground: 20 14% 7%;
+
+    --border: 20 10% 22%;
+    --input: 20 10% 22%;
+    --ring: 14 88% 58%;
+
+    --sidebar-background: 20 12% 9%;
+    --sidebar-foreground: 35 30% 96%;
+    --sidebar-primary: 14 88% 58%;
+    --sidebar-primary-foreground: 35 100% 98%;
+    --sidebar-accent: 20 10% 18%;
+    --sidebar-accent-foreground: 38 90% 60%;
+    --sidebar-border: 20 10% 22%;
+    --sidebar-ring: 14 88% 58%;
+    --chart-1: 30 97% 65%;
+    --chart-2: 45 96% 60%;
+    --chart-3: 48 96% 70%;
+    --chart-4: 27 95% 55%;
+    --chart-5: 35 15% 60%;
+    --sidebar: 20 12% 9%;
+    --shadow-2xs: 0 1px 3px 0px hsl(0 0% 0% / 0.4);
+    --shadow-xs: 0 1px 3px 0px hsl(0 0% 0% / 0.4);
+    --shadow-sm: 0 1px 3px 0px hsl(0 0% 0% / 0.45), 0 1px 2px -1px hsl(0 0% 0% / 0.45);
+    --shadow: 0 1px 3px 0px hsl(0 0% 0% / 0.5), 0 1px 2px -1px hsl(0 0% 0% / 0.5);
+    --shadow-md: 0 1px 3px 0px hsl(0 0% 0% / 0.5), 0 2px 4px -1px hsl(0 0% 0% / 0.5);
+    --shadow-lg: 0 1px 3px 0px hsl(0 0% 0% / 0.55), 0 4px 6px -1px hsl(0 0% 0% / 0.55);
+    --shadow-xl: 0 1px 3px 0px hsl(0 0% 0% / 0.6), 0 8px 10px -1px hsl(0 0% 0% / 0.6);
+    --shadow-2xl: 0 1px 3px 0px hsl(0 0% 0% / 0.7);
+  }
+}
+
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-body;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Poppins', sans-serif;
+  }
+}
+
+@layer utilities {
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .map-picker-pin {
+    display: grid;
+    place-items: center;
+    border-radius: 9999px;
+    background: hsl(var(--primary) / 0.18);
+    border: 1px solid hsl(var(--primary) / 0.35);
+  }
+
+  .map-picker-pin-dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 9999px;
+    background: hsl(var(--primary));
+    border: 3px solid hsl(var(--primary-foreground));
+    box-shadow: 0 8px 18px hsl(var(--primary) / 0.28);
+  }
+}

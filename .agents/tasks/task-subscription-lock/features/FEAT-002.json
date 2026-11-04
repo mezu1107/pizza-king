@@ -1,0 +1,25 @@
+{
+  "id": "FEAT-002",
+  "type": "feat",
+  "description": "Wire the subscription system into the app: update AdminSidebar with lock icons + Subscriptions nav item, update RiderLayout with lock icons, update App.tsx with SubscriptionProvider + LockedRoute wrapping + new routes. Depends on FEAT-001.",
+  "status": "completed",
+  "steps": [
+    "1. Update src/components/admin/AdminSidebar.tsx. Add imports: useSubscription from '@/contexts/SubscriptionContext', Lock and Crown from 'lucide-react'. Add 'Subscriptions' item to managementItems array: { title: 'Subscriptions', url: '/admin/subscriptions', icon: Crown }. Inside each nav item render, after the existing <span>{item.title}</span>, add: {!collapsed && isModuleLocked(item.url) && <Lock className='ml-auto h-3 w-3 text-muted-foreground shrink-0' />}. Call const { isModuleLocked } = useSubscription() at the top of the AdminSidebar function body. The Subscriptions item itself is never locked so no lock icon appears for it.",
+    "2. Update src/components/rider/RiderLayout.tsx. Add imports: useSubscription from '@/contexts/SubscriptionContext', Lock from 'lucide-react'. Call const { isModuleLocked } = useSubscription() inside the RiderLayout function body (after the existing hooks). In the side nav map, add after <span className='hidden lg:inline'>{item.title}</span>: {isModuleLocked(item.url) && <Lock className='hidden lg:inline w-3 h-3 ml-auto shrink-0 text-muted-foreground' />}. In the mobile bottom nav map, wrap the item.icon render with a relative div and add a lock badge: <div className='relative'><item.icon className='w-5 h-5' />{isModuleLocked(item.url) && <Lock className='absolute -top-1 -right-1 w-2.5 h-2.5 text-yellow-500' />}</div>.",
+    "3. Update src/App.tsx. a) Add import: import { SubscriptionProvider } from '@/contexts/SubscriptionContext'; b) Add import: import LockedRoute from '@/components/LockedRoute'; c) Add import: import UnlockPage from './pages/UnlockPage'; d) Add import: import SubscriptionsPage from './pages/admin/SubscriptionsPage'; e) In the App component's provider tree, wrap with <SubscriptionProvider> inside <AuthProvider> and outside <CartProvider> — the order should be: QueryClientProvider > AuthProvider > SubscriptionProvider > CartProvider > WishlistProvider > TooltipProvider. f) In AnimatedRoutes, add new routes: <Route path='/unlock' element={<UnlockPage />} /> and <Route path='/admin/subscriptions' element={<SubscriptionsPage />} />. g) Wrap the following existing admin routes with LockedRoute: /admin/deals, /admin/categories, /admin/coupons, /admin/customers, /admin/reviews, /admin/riders (both /admin/riders and /admin/riders/:id use moduleKey='/admin/riders'), /admin/delivery-zones, /admin/settings. h) Wrap the following existing rider routes with LockedRoute: /rider/map, /rider/earnings, /rider/wallet, /rider/history, /rider/schedule, /rider/notifications, /rider/chat, /rider/reviews, /rider/performance, /rider/documents, /rider/help, /rider/settings. Syntax for wrapping: <Route path='/admin/deals' element={<LockedRoute moduleKey='/admin/deals'><AdminDeals /></LockedRoute>} />."
+  ],
+  "acceptance_criteria": [
+    "AdminSidebar shows a lock icon next to locked admin modules and has a Subscriptions nav item with Crown icon",
+    "RiderLayout shows a lock icon next to locked rider modules in the side nav and mobile bottom nav",
+    "Navigating to /admin/deals (when locked) redirects to /unlock?module=%2Fadmin%2Fdeals&name=Deals",
+    "Navigating to /admin/subscriptions shows the subscriptions management page",
+    "Navigating to /unlock shows the unlock/buy page",
+    "Free modules (/admin, /admin/orders, /admin/menu, /admin/dine-in, /rider, /rider/orders, /rider/profile) are never redirected",
+    "npm run build completes with exit code 0"
+  ],
+  "verification": [
+    "cd c:\\Users\\JalipEmpire\\Downloads\\pizza-king-main && npm run build — must exit 0 with no TypeScript errors"
+  ],
+  "blocked_reason": null,
+  "findings": "All three files updated and build passes (exit 0). AdminSidebar: added Lock+Crown imports, useSubscription hook, Subscriptions nav item in managementItems, lock icons in both mainItems and managementItems renders. RiderLayout: added Lock import, useSubscription hook, lock icon in side nav, lock badge overlay in mobile bottom nav. App.tsx: added SubscriptionProvider (wrapping CartProvider inside AuthProvider), LockedRoute import, UnlockPage import, SubscriptionsPage import, /unlock route, /admin/subscriptions route, LockedRoute wrapping for 8 admin routes and 12 rider routes as specified. Pre-existing build warnings (chunk size, push.ts dynamic import) are unchanged."
+}

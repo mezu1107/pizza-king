@@ -1,0 +1,7 @@
+{
+  "task_id": "task-subscription-lock",
+  "task_description": "Build a module lock/unlock subscription system. Free modules are always accessible; locked modules show in sidebars with a lock icon but redirect to an unlock/buy page. A /admin/subscriptions page lets the owner toggle lock state stored in localStorage.",
+  "status": "pending",
+  "feature_order": ["FEAT-001", "FEAT-002"],
+  "blocked_reason": null
+}

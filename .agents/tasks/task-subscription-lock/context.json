@@ -1,0 +1,27 @@
+{
+  "project_type": "React 18 + TypeScript SPA, Vite build, shadcn/ui components, react-router-dom v6",
+  "language": "TypeScript/TSX",
+  "build_system": "Vite 5 — `npm run build` produces dist/. Path alias `@/` maps to `src/`. No SSR.",
+  "test_framework": "vitest — `npm run test`. Currently no test files exist; build success is the verification target.",
+  "build_command": "npm run build",
+  "test_command": "npm run test",
+  "verification_instructions": "Run `npm run build` from the workspace root (c:\\Users\\JalipEmpire\\Downloads\\pizza-king-main). The build must complete with exit code 0 and zero TypeScript errors. There are currently no test files so `npm run test` passes vacuously.",
+  "snapshot_or_generated_files": null,
+  "environment_constraints": "Windows PowerShell. Workspace root: c:\\Users\\JalipEmpire\\Downloads\\pizza-king-main. All new files go inside src/. Do NOT use relative paths from outside the worktree.",
+  "contribution_requirements": "No AGENTS.md or CONTRIBUTING.md found. Follow patterns in existing source files exactly.",
+  "key_patterns": "Context pattern: createContext + useContext hook exported as useXxx, Provider exported as XxxProvider, both from the same file. See src/contexts/CartContext.tsx as canonical example. Admin pages wrap with <AdminLayout title='...'> from src/components/admin/AdminLayout.tsx. Rider pages wrap with <RiderLayout title='...'> from src/components/rider/RiderLayout.tsx. Icons from lucide-react. shadcn components from @/components/ui/. NavLink from @/components/NavLink. Sidebar utilities from @/components/ui/sidebar.",
+  "relevant_files": [
+    "src/contexts/CartContext.tsx",
+    "src/contexts/AuthContext.tsx",
+    "src/components/admin/AdminSidebar.tsx",
+    "src/components/admin/AdminLayout.tsx",
+    "src/components/rider/RiderLayout.tsx",
+    "src/components/NavLink.tsx",
+    "src/App.tsx",
+    "src/components/ui/switch.tsx",
+    "src/components/ui/badge.tsx",
+    "src/components/ui/card.tsx",
+    "src/components/ui/button.tsx"
+  ],
+  "directory_structure": "src/contexts/ — React contexts; src/components/admin/ — admin layout + sidebar; src/components/rider/ — rider layout; src/components/ui/ — shadcn primitives; src/pages/admin/ — admin page components; src/pages/rider/ — rider page components; src/pages/ — public + shared pages"
+}
