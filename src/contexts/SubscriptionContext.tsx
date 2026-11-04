@@ -1,5 +1,28 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 
+export const MODULE_PRICES: Record<string, { name: string; description: string; oneTime: number; monthly: number }> = {
+  "/admin/deals": { name: "Deals Management", description: "Create and manage flash deals and promotions", oneTime: 2500, monthly: 999 },
+  "/admin/categories": { name: "Categories", description: "Organize menu with custom categories", oneTime: 1500, monthly: 599 },
+  "/admin/coupons": { name: "Coupons", description: "Generate and manage discount coupons", oneTime: 2000, monthly: 799 },
+  "/admin/customers": { name: "Customers", description: "Full customer management and analytics", oneTime: 3000, monthly: 1199 },
+  "/admin/riders": { name: "Riders Management", description: "Manage delivery riders and assignments", oneTime: 3500, monthly: 1399 },
+  "/admin/delivery-zones": { name: "Delivery Zones", description: "Configure delivery areas and pricing", oneTime: 2000, monthly: 799 },
+  "/admin/reviews": { name: "Reviews", description: "Monitor and respond to customer reviews", oneTime: 1500, monthly: 599 },
+  "/admin/settings": { name: "Settings", description: "Full app configuration and customization", oneTime: 2500, monthly: 999 },
+  "/rider/map": { name: "Live Map", description: "Real-time GPS tracking map for riders", oneTime: 2000, monthly: 799 },
+  "/rider/earnings": { name: "Earnings", description: "Detailed earnings and payout tracking", oneTime: 1500, monthly: 599 },
+  "/rider/wallet": { name: "Wallet", description: "Rider wallet and withdrawal management", oneTime: 1500, monthly: 599 },
+  "/rider/history": { name: "History", description: "Full delivery history and records", oneTime: 1000, monthly: 399 },
+  "/rider/schedule": { name: "Schedule", description: "Shift scheduling and availability", oneTime: 1500, monthly: 599 },
+  "/rider/notifications": { name: "Notifications", description: "Push notifications for riders", oneTime: 1000, monthly: 399 },
+  "/rider/chat": { name: "Chat Support", description: "In-app chat with support team", oneTime: 2000, monthly: 799 },
+  "/rider/reviews": { name: "Reviews", description: "Customer ratings and feedback", oneTime: 1000, monthly: 399 },
+  "/rider/performance": { name: "Performance", description: "Detailed performance analytics", oneTime: 1500, monthly: 599 },
+  "/rider/documents": { name: "Documents", description: "Document upload and verification", oneTime: 1000, monthly: 399 },
+  "/rider/help": { name: "Help Center", description: "Access to help docs and support", oneTime: 800, monthly: 299 },
+  "/rider/settings": { name: "Settings", description: "Rider app settings and preferences", oneTime: 800, monthly: 299 },
+};
+
 export interface ModuleDefinition {
   key: string;
   name: string;

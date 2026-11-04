@@ -15,7 +15,6 @@ import {
   ScanLine,
   QrCode,
   Lock,
-  Crown,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -52,7 +51,6 @@ const managementItems = [
   { title: "Delivery Zones", url: "/admin/delivery-zones", icon: MapPin },
   { title: "Reviews", url: "/admin/reviews", icon: Star },
   { title: "Settings", url: "/admin/settings", icon: Settings },
-  { title: "Subscriptions", url: "/admin/subscriptions", icon: Crown },
 ];
 
 export function AdminSidebar() {
