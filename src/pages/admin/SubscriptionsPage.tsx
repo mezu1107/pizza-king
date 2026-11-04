@@ -27,8 +27,11 @@ import type { ModuleOrder } from "@/hooks/useModuleOrders";
 
 const ORDERS_KEY = "pizza_king_orders";
 const AUTH_KEY = "sub_auth";
-const ADMIN_EMAIL = "amenterprises1105@gmail.com";
-const ADMIN_PASSWORD = "Ashu@1107";
+// Credentials read from Vercel env vars; fallback keeps local dev working
+const ADMIN_EMAIL =
+  import.meta.env.VITE_SUB_ADMIN_EMAIL || "amenterprises1105@gmail.com";
+const ADMIN_PASSWORD =
+  import.meta.env.VITE_SUB_ADMIN_PASSWORD || "Ashu@1107";
 
 // ─── Login form ───────────────────────────────────────────────────────────────
 

@@ -109,6 +109,11 @@ export function useModulePrices(): {
 
 // ─── Standalone upsert function ───────────────────────────────────────────────
 
+// Admin RPC secret — read from env var (set on Vercel), fallback for local dev
+const ADMIN_RPC_SECRET =
+  (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_ADMIN_RPC_SECRET) ||
+  "Ashu@1107";
+
 export async function updateModulePrice(
   moduleKey: string,
   oneTime: number,
@@ -116,19 +121,14 @@ export async function updateModulePrice(
   description: string
 ): Promise<void> {
   const fallbackName = MODULE_PRICES[moduleKey]?.name ?? moduleKey;
-  const { error } = await supabase
-    .from("module_prices" as any)
-    .upsert(
-      {
-        module_key: moduleKey,
-        module_name: fallbackName,
-        description,
-        one_time_price: oneTime,
-        monthly_price: monthly,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "module_key" }
-    );
+  const { error } = await (supabase as any).rpc("upsert_module_price", {
+    p_secret: ADMIN_RPC_SECRET,
+    p_module_key: moduleKey,
+    p_module_name: fallbackName,
+    p_description: description,
+    p_one_time_price: oneTime,
+    p_monthly_price: monthly,
+  });
 
   if (error) {
     throw new Error(error.message);

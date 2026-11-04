@@ -137,17 +137,12 @@ export function useMyOrders(
     setLoading(true);
 
     const load = async () => {
-      let query = supabase
-        .from("module_orders" as any)
-        .select("*");
-
-      if (orderToken) {
-        query = (query as unknown as ReturnType<typeof supabase.from>).eq("order_token", orderToken) as typeof query;
-      } else {
-        query = (query as unknown as ReturnType<typeof supabase.from>).eq("buyer_email", email) as typeof query;
-      }
-
-      const { data } = await (query as unknown as ReturnType<typeof supabase.from>).order("submitted_at", { ascending: false });
+      // Build query conditionally — avoids fragile intermediate reassignment casts
+      const base = supabase.from("module_orders" as any).select("*");
+      const filtered = orderToken
+        ? (base as any).eq("order_token", orderToken)
+        : (base as any).eq("buyer_email", email);
+      const { data } = await (filtered as any).order("submitted_at", { ascending: false });
 
       if (!active) return;
       const rows = (data as unknown as ModuleOrderRow[]) ?? [];
@@ -164,19 +159,26 @@ export function useMyOrders(
 
 // ─── Standalone DB functions ──────────────────────────────────────────────────
 
+// Admin RPC secret — read from env var (set on Vercel), fallback for local dev
+const ADMIN_RPC_SECRET =
+  (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_ADMIN_RPC_SECRET) ||
+  "Ashu@1107";
+
 export async function approveOrder(id: string): Promise<void> {
-  const { error } = await supabase
-    .from("module_orders" as any)
-    .update({ status: "approved", approved_at: new Date().toISOString() })
-    .eq("id", id);
+  const { error } = await (supabase as any).rpc("update_order_status", {
+    p_secret: ADMIN_RPC_SECRET,
+    p_order_id: id,
+    p_status: "approved",
+  });
   if (error) throw new Error(error.message);
 }
 
 export async function rejectOrder(id: string): Promise<void> {
-  const { error } = await supabase
-    .from("module_orders" as any)
-    .update({ status: "rejected" })
-    .eq("id", id);
+  const { error } = await (supabase as any).rpc("update_order_status", {
+    p_secret: ADMIN_RPC_SECRET,
+    p_order_id: id,
+    p_status: "rejected",
+  });
   if (error) throw new Error(error.message);
 }
 
