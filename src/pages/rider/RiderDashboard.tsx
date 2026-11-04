@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Package, CheckCircle, Clock, TrendingUp, MapPin, Phone } from "lucide-react";
 import { useRiderRewards } from "@/hooks/useRiderRewards";
 import { deliveryEarnings } from "@/lib/riderRewards";
+import { useRiderGPS } from "@/hooks/useRiderGPS";
 
 interface OrderRow {
   id: string;
@@ -22,6 +23,7 @@ interface OrderRow {
 const RiderDashboard = () => {
   const { user } = useAuth();
   const settings = useRiderRewards();
+  const gpsStatus = useRiderGPS(user?.id);
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -61,6 +63,32 @@ const RiderDashboard = () => {
     <RiderLayout title="Dashboard">
       <div className="space-y-6">
         <h1 className="text-2xl font-heading font-bold text-foreground">Welcome back! 🏍️</h1>
+
+        {/* GPS status banner */}
+        <div
+          className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium ${
+            gpsStatus === "GPS tracking active"
+              ? "bg-green-100 text-green-800 dark:bg-green-950/40 dark:text-green-300"
+              : gpsStatus.toLowerCase().includes("idle")
+              ? "bg-muted text-muted-foreground"
+              : "bg-yellow-100 text-yellow-800 dark:bg-yellow-950/40 dark:text-yellow-300"
+          }`}
+        >
+          <span
+            className={`w-2 h-2 rounded-full ${
+              gpsStatus === "GPS tracking active"
+                ? "bg-green-500"
+                : gpsStatus.toLowerCase().includes("idle")
+                ? "bg-gray-400"
+                : "bg-yellow-500"
+            }`}
+          />
+          {gpsStatus === "GPS tracking active"
+            ? "GPS Tracking Active"
+            : gpsStatus.toLowerCase().includes("idle")
+            ? "GPS Idle"
+            : gpsStatus}
+        </div>
 
         {/* Stats */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

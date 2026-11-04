@@ -3,7 +3,7 @@ import { Home, UtensilsCrossed, ShoppingCart, ClipboardList, User } from "lucide
 import { useCart } from "@/contexts/CartContext";
 import { cn } from "@/lib/utils";
 
-const HIDDEN_PREFIXES = ["/admin", "/pos", "/rider", "/table"];
+const HIDDEN_PREFIXES = ["/admin", "/pos", "/rider", "/table", "/subscriptions", "/feature-store", "/checkout", "/unlock"];
 
 const items = [
   { label: "Home", href: "/", icon: Home },

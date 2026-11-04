@@ -30,6 +30,7 @@ import AdminRiderManage from "./pages/admin/AdminRiderManage";
 import UnlockPage from "./pages/UnlockPage";
 import TrackSubscriptionPage from "./pages/TrackSubscriptionPage";
 import MobileBottomNav from "./components/MobileBottomNav";
+import MaintenanceGate from "@/components/MaintenanceGate";
 
 // Admin pages
 import AdminLogin from "./pages/admin/AdminLogin";
@@ -53,6 +54,13 @@ import POSTerminal from "./pages/pos/POSTerminal";
 import POSOrders from "./pages/pos/POSOrders";
 import POSProducts from "./pages/pos/POSProducts";
 import POSReports from "./pages/pos/POSReports";
+import POSLogin from "./pages/pos/POSLogin";
+import POSTables from "./pages/pos/POSTables";
+import POSKitchen from "./pages/pos/POSKitchen";
+import POSCustomers from "./pages/pos/POSCustomers";
+import POSExpenses from "./pages/pos/POSExpenses";
+import POSShift from "./pages/pos/POSShift";
+import POSStaff from "./pages/pos/POSStaff";
 
 // Rider pages
 import RiderLogin from "./pages/rider/RiderLogin";
@@ -131,6 +139,13 @@ const AnimatedRoutes = () => {
         <Route path="/pos/orders" element={<POSOrders />} />
         <Route path="/pos/products" element={<POSProducts />} />
         <Route path="/pos/reports" element={<POSReports />} />
+        <Route path="/pos/login" element={<POSLogin />} />
+        <Route path="/pos/tables" element={<POSTables />} />
+        <Route path="/pos/kitchen" element={<POSKitchen />} />
+        <Route path="/pos/customers" element={<POSCustomers />} />
+        <Route path="/pos/expenses" element={<POSExpenses />} />
+        <Route path="/pos/shift" element={<POSShift />} />
+        <Route path="/pos/staff" element={<POSStaff />} />
 
         {/* Rider routes */}
         <Route path="/rider/login" element={<RiderLogin />} />
@@ -169,7 +184,9 @@ const App = () => (
               <Toaster />
               <Sonner />
               <BrowserRouter>
-                <AnimatedRoutes />
+                <MaintenanceGate>
+                  <AnimatedRoutes />
+                </MaintenanceGate>
                 <MobileBottomNav />
               </BrowserRouter>
             </TooltipProvider>

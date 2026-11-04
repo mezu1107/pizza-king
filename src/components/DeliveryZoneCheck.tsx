@@ -98,19 +98,21 @@ const DeliveryZoneCheck = ({ onResult }: Props) => {
         Click anywhere on the map or drag the pin to set your exact location.
       </p>
 
-      <MapPicker
-        lat={mapLat}
-        lng={mapLng}
-        radiusKm={Number(settings.free_radius_km)}
-        showRadius
-        onChange={(lat, lng) => setCoords({ lat, lng })}
-        extras={areas.map((a) => ({
-          lat: Number(a.lat),
-          lng: Number(a.lng),
-          radiusKm: Number(a.radius_km),
-        }))}
-        height="260px"
-      />
+      <div className="rounded-xl overflow-hidden border border-border">
+        <MapPicker
+          lat={mapLat}
+          lng={mapLng}
+          radiusKm={Number(settings.free_radius_km)}
+          showRadius
+          onChange={(lat, lng) => setCoords({ lat, lng })}
+          extras={areas.map((a) => ({
+            lat: Number(a.lat),
+            lng: Number(a.lng),
+            radiusKm: Number(a.radius_km),
+          }))}
+          height="220px"
+        />
+      </div>
 
       {result && result.allowed && (
         <div className="rounded-xl p-3 text-sm flex items-start gap-2 bg-green-50 text-green-900 border border-green-200 dark:bg-green-950/40 dark:text-green-200 dark:border-green-900">
