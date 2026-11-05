@@ -34,7 +34,7 @@ export function useSiteSettings() {
     load();
 
     const channel = supabase
-      .channel("website-settings-live")
+      .channel(`website-settings-${Math.random().toString(36).slice(2)}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "website_settings" },
