@@ -1545,16 +1545,9 @@ function PurchaseHistoryTab({
       o.createdAt,
       o.updatedAt,
     ]);
-    const csv = [headers, ...rows]
-      .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(","))
-      .join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "purchase-history.csv";
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadCsv("purchase-history.csv", [headers, ...rows].map((row) =>
+      Object.fromEntries(headers.map((header, index) => [header, row[index]]))
+    ));
   };
 
   if (loading) {

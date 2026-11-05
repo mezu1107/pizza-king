@@ -1464,7 +1464,66 @@ export type Database = {
           updated_at: string
         }[]
       }
+      get_module_order_by_token: {
+        Args: { p_order_token: string }
+        Returns: {
+          amount: number
+          approved_at: string
+          buyer_email: string
+          buyer_name: string
+          buyer_phone: string
+          id: string
+          module_key: string
+          module_name: string
+          notes: string
+          order_token: string
+          plan_type: string
+          screenshot_data_url: string
+          screenshot_url: string
+          status: string
+          submitted_at: string
+          txn_id: string
+        }[]
+      }
+      get_package_order_by_token: {
+        Args: { p_order_token: string }
+        Returns: {
+          admin_remarks: string
+          amount: number
+          billing_type: string
+          buyer_email: string
+          buyer_name: string
+          buyer_phone: string
+          category: string
+          created_at: string
+          custom_modules: string[]
+          id: string
+          order_token: string
+          package_id: string
+          package_name: string
+          package_order_status_history: Json
+          plan_key: string
+          screenshot_data_url: string
+          status: string
+          subscription_end: string
+          subscription_start: string
+          txn_id: string
+          updated_at: string
+        }[]
+      }
       get_public_delivery_config: { Args: never; Returns: Json }
+      get_public_module_prices: {
+        Args: never
+        Returns: {
+          description: string
+          module_key: string
+          module_name: string
+          monthly_price: number
+          one_time_price: number
+          updated_at: string
+        }[]
+      }
+      get_public_website_settings: { Args: never; Returns: Json }
       get_table_by_code: {
         Args: { _code: string }
         Returns: {
@@ -1483,6 +1542,20 @@ export type Database = {
             Returns: boolean
           }
         | { Args: { _role: string; _user_id: string }; Returns: boolean }
+      is_confirmed_auth_email: { Args: { p_email: string }; Returns: boolean }
+      place_customer_order: {
+        Args: {
+          p_coupon_code: string
+          p_customer_address: string
+          p_customer_name: string
+          p_customer_phone: string
+          p_delivery_lat: number
+          p_delivery_lng: number
+          p_items: Json
+          p_points_redeemed: number
+        }
+        Returns: string
+      }
       place_dine_in_order: {
         Args: {
           _code: string
@@ -1509,6 +1582,30 @@ export type Database = {
       set_package_modules: {
         Args: { p_module_keys: string[]; p_plan_key: string; p_secret: string }
         Returns: undefined
+      }
+      submit_module_order: {
+        Args: {
+          p_buyer_email: string
+          p_buyer_name: string
+          p_buyer_phone: string
+          p_module_key: string
+          p_plan_type: string
+          p_screenshot_data_url: string
+          p_txn_id: string
+        }
+        Returns: string
+      }
+      submit_package_order: {
+        Args: {
+          p_billing_type: string
+          p_buyer_email: string
+          p_buyer_name: string
+          p_buyer_phone: string
+          p_package_id: string
+          p_screenshot_data_url: string
+          p_txn_id: string
+        }
+        Returns: string
       }
       update_order_status: {
         Args: { p_order_id: string; p_secret: string; p_status: string }

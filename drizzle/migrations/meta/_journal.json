@@ -8,6 +8,13 @@
       "when": 1793791847084,
       "tag": "0000_rider_gps_and_private_documents",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1793899418535,
+      "tag": "0001_tighten_selected_security_findings",
+      "breakpoints": true
     }
   ]
 }

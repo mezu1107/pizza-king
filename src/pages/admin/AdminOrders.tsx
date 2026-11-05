@@ -5,6 +5,7 @@ import AdminLayout from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
+import { downloadCsv } from "@/lib/receipt";
 import { Card, CardContent } from "@/components/ui/card";
 import { Search, Eye, Truck, User, Phone, MapPin, Mail, Package, Download } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -121,25 +122,16 @@ const AdminOrders = () => {
   };
 
   const exportOrders = () => {
-    const csv = [
-      ["Order ID", "Customer", "Phone", "Email", "Address", "Total", "Status", "Date"].join(","),
-      ...filtered.map(o => [
-        o.id.slice(0, 8),
-        o.customer_name || "N/A",
-        o.customer_phone || "N/A",
-        o.customer_email || "N/A",
-        `"${(o.customer_address || "N/A").replace(/"/g, '""')}"`,
-        o.total,
-        o.status,
-        new Date(o.created_at).toLocaleDateString()
-      ].join(","))
-    ].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `orders-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
+    downloadCsv(`orders-${new Date().toISOString().slice(0, 10)}.csv`, filtered.map((o) => ({
+      "Order ID": o.id.slice(0, 8),
+      Customer: o.customer_name || "N/A",
+      Phone: o.customer_phone || "N/A",
+      Email: o.customer_email || "N/A",
+      Address: o.customer_address || "N/A",
+      Total: o.total,
+      Status: o.status,
+      Date: new Date(o.created_at).toLocaleDateString(),
+    })));
   };
 
   const statusColor = (status: string) => {
