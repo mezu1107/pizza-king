@@ -202,6 +202,7 @@ export function downloadCsv(filename: string, rows: Record<string, unknown>[]) {
   if (!rows.length) return;
   const headers = Object.keys(rows[0]);
   const esc = (v: unknown) => {
+    if (typeof v === "number" && Number.isFinite(v)) return String(v);
     const value = String(v ?? "").replace(/[\u0000-\u001f]/g, " ");
     const safeValue = /^[\s]*[=+\-@]/.test(value) ? `'${value}` : value;
     return `"${safeValue.replace(/"/g, '""')}"`;

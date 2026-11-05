@@ -1445,6 +1445,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      admin_has_paid_module: {
+        Args: { p_module_key: string }
+        Returns: boolean
+      }
       delete_package_order: {
         Args: { p_order_id: string; p_secret: string }
         Returns: undefined
@@ -1500,6 +1504,20 @@ export type Database = {
           status: string
           submitted_at: string
           txn_id: string
+        }[]
+      }
+      get_my_subscription_entitlements: {
+        Args: never
+        Returns: {
+          billing_type: string
+          category: string
+          custom_modules: string[]
+          id: string
+          package_name: string
+          plan_key: string
+          status: string
+          subscription_end: string
+          subscription_start: string
         }[]
       }
       get_package_order_by_token: {

@@ -835,3 +835,189 @@ GRANT SELECT, INSERT, UPDATE ON public.push_tokens TO anon, authenticated;
 -- =============================================================================
 -- DONE. Entire database is now healthy, safe, synchronized, and secure.
 -- =============================================================================
+
+-- Security overrides for policies created earlier in this legacy repair script.
+-- Keep this block last: the older policy definitions above are intentionally
+-- superseded so re-running this file cannot restore unrestricted access.
+CREATE OR REPLACE FUNCTION public.is_confirmed_auth_email(p_email text)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM auth.users AS u
+    WHERE u.id = auth.uid() AND u.email_confirmed_at IS NOT NULL
+      AND lower(u.email) = lower(p_email)
+  );
+$$;
+
+CREATE OR REPLACE FUNCTION public.get_my_subscription_entitlements()
+RETURNS TABLE(
+  id uuid, plan_key text, package_name text, category text, billing_type text,
+  status text, subscription_start date, subscription_end date, custom_modules text[]
+)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+  SELECT o.id, o.plan_key, o.package_name, o.category, o.billing_type,
+         o.status, o.subscription_start, o.subscription_end, o.custom_modules
+  FROM auth.users AS u
+  JOIN public.package_orders AS o ON lower(o.buyer_email) = lower(u.email)
+  WHERE u.id = auth.uid() AND u.email_confirmed_at IS NOT NULL
+    AND o.status IN ('approved', 'active')
+    AND (o.subscription_start IS NULL OR o.subscription_start <= current_date)
+    AND (o.subscription_end IS NULL OR o.subscription_end >= current_date);
+$$;
+REVOKE ALL ON FUNCTION public.get_my_subscription_entitlements() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.get_my_subscription_entitlements() TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.admin_has_paid_module(p_module_key text)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+  SELECT auth.uid() IS NOT NULL AND public.has_role(auth.uid(), 'admin')
+    AND EXISTS (
+      SELECT 1 FROM auth.users AS u
+      JOIN public.package_orders AS o ON lower(o.buyer_email) = lower(u.email)
+      WHERE u.id = auth.uid() AND u.email_confirmed_at IS NOT NULL
+        AND o.category = 'admin' AND o.status IN ('approved', 'active')
+        AND (o.subscription_start IS NULL OR o.subscription_start <= current_date)
+        AND (o.subscription_end IS NULL OR o.subscription_end >= current_date)
+        AND (coalesce(o.custom_modules, ARRAY[]::text[]) @> ARRAY[p_module_key]
+          OR EXISTS (
+            SELECT 1 FROM public.package_modules AS pm
+            JOIN public.subscription_packages AS sp ON sp.id = pm.package_id
+            WHERE sp.plan_key = o.plan_key AND pm.module_key = p_module_key
+          ))
+    );
+$$;
+
+-- Private profile and role data.
+DROP POLICY IF EXISTS "profiles_select_all" ON public.profiles;
+DROP POLICY IF EXISTS "profiles_insert_policy" ON public.profiles;
+DROP POLICY IF EXISTS "profiles_update_policy" ON public.profiles;
+DROP POLICY IF EXISTS "user_roles_select_policy" ON public.user_roles;
+DROP POLICY IF EXISTS "user_roles_admin_all" ON public.user_roles;
+CREATE POLICY "Users view own profile" ON public.profiles FOR SELECT TO authenticated USING (auth.uid() = user_id);
+CREATE POLICY "Admins view all profiles" ON public.profiles FOR SELECT TO authenticated USING (public.has_role(auth.uid(), 'admin'));
+CREATE POLICY "Users insert own profile" ON public.profiles FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users update own profile" ON public.profiles FOR UPDATE TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users view own role" ON public.user_roles FOR SELECT TO authenticated USING (auth.uid() = user_id);
+CREATE POLICY "Admins manage roles" ON public.user_roles FOR ALL TO authenticated USING (public.has_role(auth.uid(), 'admin')) WITH CHECK (public.has_role(auth.uid(), 'admin'));
+
+-- Public catalog reads stay active-only; catalog writes require an admin.
+DROP POLICY IF EXISTS "categories_public_select" ON public.categories;
+DROP POLICY IF EXISTS "categories_auth_all" ON public.categories;
+DROP POLICY IF EXISTS "foods_public_select" ON public.foods;
+DROP POLICY IF EXISTS "foods_auth_all" ON public.foods;
+DROP POLICY IF EXISTS "deals_public_select" ON public.deals;
+DROP POLICY IF EXISTS "deals_auth_all" ON public.deals;
+DROP POLICY IF EXISTS "coupons_public_select" ON public.coupons;
+DROP POLICY IF EXISTS "coupons_auth_all" ON public.coupons;
+CREATE POLICY "Public view active categories" ON public.categories FOR SELECT TO anon, authenticated USING (active = true);
+CREATE POLICY "Admins manage categories" ON public.categories FOR ALL TO authenticated USING (public.has_role(auth.uid(), 'admin')) WITH CHECK (public.has_role(auth.uid(), 'admin'));
+CREATE POLICY "Public view active foods" ON public.foods FOR SELECT TO anon, authenticated USING (active = true);
+CREATE POLICY "Admins manage foods" ON public.foods FOR ALL TO authenticated USING (public.has_role(auth.uid(), 'admin')) WITH CHECK (public.has_role(auth.uid(), 'admin'));
+CREATE POLICY "Public view active deals" ON public.deals FOR SELECT TO anon, authenticated USING (active = true);
+CREATE POLICY "Admins view deals with active module" ON public.deals FOR SELECT TO authenticated USING (public.admin_has_paid_module('/admin/deals'));
+CREATE POLICY "Admins insert deals with active module" ON public.deals FOR INSERT TO authenticated WITH CHECK (public.admin_has_paid_module('/admin/deals'));
+CREATE POLICY "Admins update deals with active module" ON public.deals FOR UPDATE TO authenticated USING (public.admin_has_paid_module('/admin/deals')) WITH CHECK (public.admin_has_paid_module('/admin/deals'));
+CREATE POLICY "Admins delete deals with active module" ON public.deals FOR DELETE TO authenticated USING (public.admin_has_paid_module('/admin/deals'));
+CREATE POLICY "Signed-in users view active coupons" ON public.coupons FOR SELECT TO authenticated USING (active = true);
+CREATE POLICY "Admins manage coupons" ON public.coupons FOR ALL TO authenticated USING (public.has_role(auth.uid(), 'admin')) WITH CHECK (public.has_role(auth.uid(), 'admin'));
+
+-- Delivery settings use the restricted public RPC; table writes remain admin-only.
+DROP POLICY IF EXISTS "delivery_settings_public_read" ON public.delivery_settings;
+DROP POLICY IF EXISTS "delivery_settings_auth_all" ON public.delivery_settings;
+DROP POLICY IF EXISTS "delivery_areas_public_read" ON public.delivery_areas;
+DROP POLICY IF EXISTS "delivery_areas_auth_all" ON public.delivery_areas;
+CREATE POLICY "Admins manage delivery settings" ON public.delivery_settings FOR ALL TO authenticated USING (public.has_role(auth.uid(), 'admin')) WITH CHECK (public.has_role(auth.uid(), 'admin'));
+CREATE POLICY "Public view active delivery areas" ON public.delivery_areas FOR SELECT TO anon, authenticated USING (active = true);
+CREATE POLICY "Admins manage delivery areas" ON public.delivery_areas FOR ALL TO authenticated USING (public.has_role(auth.uid(), 'admin')) WITH CHECK (public.has_role(auth.uid(), 'admin'));
+
+-- Subscription marketing data is public only for enabled plans. Purchase records
+-- are submitted and tracked through the validated RPCs, never direct writes.
+DROP POLICY IF EXISTS "sub_packages_public_read" ON public.subscription_packages;
+DROP POLICY IF EXISTS "sub_packages_auth_all" ON public.subscription_packages;
+DROP POLICY IF EXISTS "subscription_packages_public_read" ON public.subscription_packages;
+DROP POLICY IF EXISTS "package_modules_public_read" ON public.package_modules;
+DROP POLICY IF EXISTS "package_modules_auth_all" ON public.package_modules;
+DROP POLICY IF EXISTS "package_features_public_read" ON public.package_features;
+DROP POLICY IF EXISTS "package_features_auth_all" ON public.package_features;
+DROP POLICY IF EXISTS "package_orders_public_read" ON public.package_orders;
+DROP POLICY IF EXISTS "package_orders_public_insert" ON public.package_orders;
+DROP POLICY IF EXISTS "package_orders_auth_update" ON public.package_orders;
+DROP POLICY IF EXISTS "package_orders_auth_delete" ON public.package_orders;
+DROP POLICY IF EXISTS "package_order_status_history_read" ON public.package_order_status_history;
+DROP POLICY IF EXISTS "package_order_status_history_insert" ON public.package_order_status_history;
+DROP POLICY IF EXISTS "package_order_status_history_public_read" ON public.package_order_status_history;
+DROP POLICY IF EXISTS "package_order_status_history_public_insert" ON public.package_order_status_history;
+CREATE POLICY "Enabled plans are public" ON public.subscription_packages FOR SELECT TO anon, authenticated USING (is_enabled = true);
+CREATE POLICY "Admins manage plans" ON public.subscription_packages FOR ALL TO authenticated USING (public.has_role(auth.uid(), 'admin')) WITH CHECK (public.has_role(auth.uid(), 'admin'));
+CREATE POLICY "Enabled package modules are public" ON public.package_modules FOR SELECT TO anon, authenticated USING (EXISTS (SELECT 1 FROM public.subscription_packages p WHERE p.id = package_id AND p.is_enabled = true));
+CREATE POLICY "Admins manage package modules" ON public.package_modules FOR ALL TO authenticated USING (public.has_role(auth.uid(), 'admin')) WITH CHECK (public.has_role(auth.uid(), 'admin'));
+CREATE POLICY "Enabled package features are public" ON public.package_features FOR SELECT TO anon, authenticated USING (EXISTS (SELECT 1 FROM public.subscription_packages p WHERE p.id = package_id AND p.is_enabled = true));
+CREATE POLICY "Admins manage package features" ON public.package_features FOR ALL TO authenticated USING (public.has_role(auth.uid(), 'admin')) WITH CHECK (public.has_role(auth.uid(), 'admin'));
+CREATE POLICY "Admins view package orders" ON public.package_orders FOR SELECT TO authenticated USING (public.has_role(auth.uid(), 'admin'));
+CREATE POLICY "Verified buyers view own package orders" ON public.package_orders FOR SELECT TO authenticated USING (public.is_confirmed_auth_email(buyer_email));
+CREATE POLICY "Admins manage package orders" ON public.package_orders FOR UPDATE TO authenticated USING (public.has_role(auth.uid(), 'admin')) WITH CHECK (public.has_role(auth.uid(), 'admin'));
+CREATE POLICY "Admins delete package orders" ON public.package_orders FOR DELETE TO authenticated USING (public.has_role(auth.uid(), 'admin'));
+CREATE POLICY "Admins view package history" ON public.package_order_status_history FOR SELECT TO authenticated USING (public.has_role(auth.uid(), 'admin'));
+CREATE POLICY "Verified buyers view own package history" ON public.package_order_status_history FOR SELECT TO authenticated USING (EXISTS (SELECT 1 FROM public.package_orders o WHERE o.id = order_id AND public.is_confirmed_auth_email(o.buyer_email)));
+
+-- Order and tracking records are private. Public checkout/QR placement uses
+-- validated SECURITY DEFINER functions, not unrestricted INSERT policies.
+DROP POLICY IF EXISTS "orders_customer_insert" ON public.orders;
+DROP POLICY IF EXISTS "orders_select_policy" ON public.orders;
+DROP POLICY IF EXISTS "orders_update_policy" ON public.orders;
+DROP POLICY IF EXISTS "order_items_insert_policy" ON public.order_items;
+DROP POLICY IF EXISTS "order_items_select_policy" ON public.order_items;
+DROP POLICY IF EXISTS "dine_in_orders_public_insert" ON public.dine_in_orders;
+DROP POLICY IF EXISTS "dine_in_orders_public_read" ON public.dine_in_orders;
+DROP POLICY IF EXISTS "dine_in_orders_auth_all" ON public.dine_in_orders;
+CREATE POLICY "Users view own orders" ON public.orders FOR SELECT TO authenticated USING (auth.uid() = user_id);
+CREATE POLICY "Admins view all orders" ON public.orders FOR SELECT TO authenticated USING (public.has_role(auth.uid(), 'admin'));
+CREATE POLICY "Riders view assigned orders" ON public.orders FOR SELECT TO authenticated USING (rider_id = auth.uid() AND public.has_role(auth.uid(), 'rider'));
+CREATE POLICY "Users update own orders" ON public.orders FOR UPDATE TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Admins update orders" ON public.orders FOR UPDATE TO authenticated USING (public.has_role(auth.uid(), 'admin')) WITH CHECK (public.has_role(auth.uid(), 'admin'));
+CREATE POLICY "Riders update assigned orders" ON public.orders FOR UPDATE TO authenticated USING (rider_id = auth.uid() AND public.has_role(auth.uid(), 'rider')) WITH CHECK (rider_id = auth.uid() AND public.has_role(auth.uid(), 'rider'));
+CREATE POLICY "Admins delete orders" ON public.orders FOR DELETE TO authenticated USING (public.has_role(auth.uid(), 'admin'));
+CREATE POLICY "Users view own order items" ON public.order_items FOR SELECT TO authenticated USING (EXISTS (SELECT 1 FROM public.orders o WHERE o.id = order_id AND o.user_id = auth.uid()));
+CREATE POLICY "Admins view order items" ON public.order_items FOR SELECT TO authenticated USING (public.has_role(auth.uid(), 'admin'));
+CREATE POLICY "Riders view assigned order items" ON public.order_items FOR SELECT TO authenticated USING (EXISTS (SELECT 1 FROM public.orders o WHERE o.id = order_id AND o.rider_id = auth.uid() AND public.has_role(auth.uid(), 'rider')));
+CREATE POLICY "Admins insert order items" ON public.order_items FOR INSERT TO authenticated WITH CHECK (public.has_role(auth.uid(), 'admin'));
+CREATE POLICY "Admins manage dine in orders" ON public.dine_in_orders FOR ALL TO authenticated USING (public.has_role(auth.uid(), 'admin')) WITH CHECK (public.has_role(auth.uid(), 'admin'));
+
+-- Staff-only purchase prices and payment submissions; buyers can view their own
+-- records only after the account email has been confirmed.
+DROP POLICY IF EXISTS "module_prices_public_read" ON public.module_prices;
+DROP POLICY IF EXISTS "module_orders_public_insert" ON public.module_orders;
+DROP POLICY IF EXISTS "module_orders_public_read" ON public.module_orders;
+CREATE POLICY "Admins manage module prices" ON public.module_prices FOR ALL TO authenticated USING (public.has_role(auth.uid(), 'admin')) WITH CHECK (public.has_role(auth.uid(), 'admin'));
+CREATE POLICY "Admins view module orders" ON public.module_orders FOR SELECT TO authenticated USING (public.has_role(auth.uid(), 'admin'));
+CREATE POLICY "Verified buyers view own module orders" ON public.module_orders FOR SELECT TO authenticated USING (public.is_confirmed_auth_email(buyer_email));
+
+-- RLS for location, identity, push registration, and review data.
+DROP POLICY IF EXISTS "rider_gps_all" ON public.rider_gps_points;
+DROP POLICY IF EXISTS "rider_docs_all" ON public.rider_documents;
+DROP POLICY IF EXISTS "pos_tables_public_read" ON public.pos_tables;
+DROP POLICY IF EXISTS "pos_tables_auth_all" ON public.pos_tables;
+DROP POLICY IF EXISTS "reviews_public_read" ON public.reviews;
+DROP POLICY IF EXISTS "reviews_public_insert" ON public.reviews;
+DROP POLICY IF EXISTS "website_settings_public_read" ON public.website_settings;
+DROP POLICY IF EXISTS "website_settings_auth_all" ON public.website_settings;
+DROP POLICY IF EXISTS "push_tokens_all" ON public.push_tokens;
+CREATE POLICY "Admins view rider GPS" ON public.rider_gps_points FOR SELECT TO authenticated USING (public.has_role(auth.uid(), 'admin'));
+CREATE POLICY "Riders view own GPS" ON public.rider_gps_points FOR SELECT TO authenticated USING (rider_id = auth.uid() AND public.has_role(auth.uid(), 'rider'));
+CREATE POLICY "Riders add own GPS" ON public.rider_gps_points FOR INSERT TO authenticated WITH CHECK (rider_id = auth.uid() AND public.has_role(auth.uid(), 'rider'));
+CREATE POLICY "Admins manage rider documents" ON public.rider_documents FOR ALL TO authenticated USING (public.has_role(auth.uid(), 'admin')) WITH CHECK (public.has_role(auth.uid(), 'admin'));
+CREATE POLICY "Riders view own documents" ON public.rider_documents FOR SELECT TO authenticated USING (rider_id = auth.uid() AND public.has_role(auth.uid(), 'rider'));
+CREATE POLICY "Riders submit own documents" ON public.rider_documents FOR INSERT TO authenticated WITH CHECK (rider_id = auth.uid() AND public.has_role(auth.uid(), 'rider'));
+CREATE POLICY "Riders delete own documents" ON public.rider_documents FOR DELETE TO authenticated USING (rider_id = auth.uid() AND public.has_role(auth.uid(), 'rider'));
+CREATE POLICY "Admins manage POS tables" ON public.pos_tables FOR ALL TO authenticated USING (public.has_role(auth.uid(), 'admin')) WITH CHECK (public.has_role(auth.uid(), 'admin'));
+CREATE POLICY "Anyone view approved reviews" ON public.reviews FOR SELECT TO anon, authenticated USING (approved = true);
+CREATE POLICY "Admins view all reviews" ON public.reviews FOR SELECT TO authenticated USING (public.has_role(auth.uid(), 'admin'));
+CREATE POLICY "Users submit own reviews" ON public.reviews FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Admins update reviews" ON public.reviews FOR UPDATE TO authenticated USING (public.has_role(auth.uid(), 'admin')) WITH CHECK (public.has_role(auth.uid(), 'admin'));
+CREATE POLICY "Admins delete reviews" ON public.reviews FOR DELETE TO authenticated USING (public.has_role(auth.uid(), 'admin'));
+CREATE POLICY "Admins manage website settings" ON public.website_settings FOR ALL TO authenticated USING (public.has_role(auth.uid(), 'admin')) WITH CHECK (public.has_role(auth.uid(), 'admin'));
+CREATE POLICY "Users view own push tokens" ON public.push_tokens FOR SELECT TO authenticated USING (auth.uid() = user_id);
+CREATE POLICY "Users add own correctly scoped push tokens" ON public.push_tokens FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id AND ((scope = 'admin' AND public.has_role(auth.uid(), 'admin')) OR (scope = 'rider' AND public.has_role(auth.uid(), 'rider')) OR (scope = 'customer' AND NOT public.has_role(auth.uid(), 'admin') AND NOT public.has_role(auth.uid(), 'rider'))));
+CREATE POLICY "Users update own correctly scoped push tokens" ON public.push_tokens FOR UPDATE TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id AND ((scope = 'admin' AND public.has_role(auth.uid(), 'admin')) OR (scope = 'rider' AND public.has_role(auth.uid(), 'rider')) OR (scope = 'customer' AND NOT public.has_role(auth.uid(), 'admin') AND NOT public.has_role(auth.uid(), 'rider'))));
+CREATE POLICY "Users delete own push tokens" ON public.push_tokens FOR DELETE TO authenticated USING (auth.uid() = user_id);
+CREATE POLICY "Admins view push tokens" ON public.push_tokens FOR SELECT TO authenticated USING (public.has_role(auth.uid(), 'admin'));
+
+DROP POLICY IF EXISTS "Allow public read for deals images" ON storage.objects;

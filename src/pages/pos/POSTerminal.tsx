@@ -156,7 +156,7 @@ export default function POSTerminal() {
     try {
       const { data, error } = await (supabase as any).rpc("place_pos_order", {
         p_items: lines.map(({ id, quantity }) => ({ id, quantity })),
-        p_order_type: orderType,
+        p_order_type: orderType === "dine-in" ? "dine_in" : orderType,
         p_payment_method: paymentMethod,
         p_customer_name: customerName.trim(),
         p_customer_phone: customerPhone.trim(),

@@ -36,6 +36,20 @@
       "when": 1793901695657,
       "tag": "0004_secure_package_order_deletion",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793902153491,
+      "tag": "0005_require_active_deals_module_for_catalog_writes",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793902703974,
+      "tag": "0006_bind_subscription_entitlements_to_verified_user",
+      "breakpoints": true
     }
   ]
 }

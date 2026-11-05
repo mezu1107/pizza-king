@@ -196,35 +196,25 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
       return;
     }
 
-    const cleanEmail = user.email.trim().toLowerCase();
     setUnlockedModules([]);
     setActivePlans([]);
     setLoading(true);
 
     try {
-      // Query package_orders for any orders matching this buyer email
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await supabase
-        .from("package_orders" as any)
-        .select(
-          "id, plan_key, package_name, category, billing_type, status, subscription_start, subscription_end, custom_modules"
-        )
-        .eq("buyer_email", cleanEmail)
-        .order("created_at", { ascending: false });
+      // Database verifies email confirmation and derives entitlements for auth.uid().
+      const { data, error } = await supabase.rpc("get_my_subscription_entitlements");
 
       if (!error && Array.isArray(data)) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const rows = data as any[];
-        const activeRows = rows.filter(
-          (o) => o.status === "approved" || o.status === "active"
-        );
+        const activeRows = rows;
 
         if (activeRows.length > 0) {
           const newUnlocked = new Set<string>();
           const newActivePlans: ActivePlan[] = [];
 
           for (const row of activeRows) {
-            // If admin configured custom modules for this subscriber, grant those!
+            // If admin configured custom modules for this subscriber, grant those.
             const grantedMods: string[] =
               Array.isArray(row.custom_modules) && row.custom_modules.length > 0
                 ? row.custom_modules
