@@ -363,6 +363,93 @@ export type Database = {
         }
         Relationships: []
       }
+      module_orders: {
+        Row: {
+          amount: number
+          approved_at: string | null
+          buyer_email: string
+          buyer_name: string
+          buyer_phone: string
+          id: string
+          module_key: string
+          module_name: string
+          notes: string | null
+          order_token: string
+          plan_type: string
+          screenshot_data_url: string | null
+          screenshot_url: string | null
+          status: string
+          submitted_at: string | null
+          txn_id: string
+        }
+        Insert: {
+          amount: number
+          approved_at?: string | null
+          buyer_email: string
+          buyer_name: string
+          buyer_phone: string
+          id?: string
+          module_key: string
+          module_name: string
+          notes?: string | null
+          order_token?: string
+          plan_type: string
+          screenshot_data_url?: string | null
+          screenshot_url?: string | null
+          status?: string
+          submitted_at?: string | null
+          txn_id: string
+        }
+        Update: {
+          amount?: number
+          approved_at?: string | null
+          buyer_email?: string
+          buyer_name?: string
+          buyer_phone?: string
+          id?: string
+          module_key?: string
+          module_name?: string
+          notes?: string | null
+          order_token?: string
+          plan_type?: string
+          screenshot_data_url?: string | null
+          screenshot_url?: string | null
+          status?: string
+          submitted_at?: string | null
+          txn_id?: string
+        }
+        Relationships: []
+      }
+      module_prices: {
+        Row: {
+          description: string | null
+          id: string
+          module_key: string
+          module_name: string
+          monthly_price: number
+          one_time_price: number
+          updated_at: string | null
+        }
+        Insert: {
+          description?: string | null
+          id?: string
+          module_key: string
+          module_name: string
+          monthly_price?: number
+          one_time_price?: number
+          updated_at?: string | null
+        }
+        Update: {
+          description?: string | null
+          id?: string
+          module_key?: string
+          module_name?: string
+          monthly_price?: number
+          one_time_price?: number
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       order_items: {
         Row: {
           created_at: string
@@ -497,6 +584,179 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      package_features: {
+        Row: {
+          created_at: string | null
+          feature_text: string
+          id: string
+          package_id: string | null
+          sort_order: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          feature_text: string
+          id?: string
+          package_id?: string | null
+          sort_order?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          feature_text?: string
+          id?: string
+          package_id?: string | null
+          sort_order?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "package_features_package_id_fkey"
+            columns: ["package_id"]
+            isOneToOne: false
+            referencedRelation: "subscription_packages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      package_modules: {
+        Row: {
+          created_at: string | null
+          id: string
+          module_key: string
+          package_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          module_key: string
+          package_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          module_key?: string
+          package_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "package_modules_package_id_fkey"
+            columns: ["package_id"]
+            isOneToOne: false
+            referencedRelation: "subscription_packages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      package_order_status_history: {
+        Row: {
+          created_at: string | null
+          created_by: string | null
+          id: string
+          note: string | null
+          order_id: string | null
+          status: string
+        }
+        Insert: {
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          note?: string | null
+          order_id?: string | null
+          status: string
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          note?: string | null
+          order_id?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "package_order_status_history_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "package_orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      package_orders: {
+        Row: {
+          admin_remarks: string | null
+          amount: number
+          billing_type: string
+          buyer_email: string
+          buyer_name: string
+          buyer_phone: string
+          category: string
+          created_at: string | null
+          custom_modules: string[] | null
+          id: string
+          order_token: string
+          package_id: string | null
+          package_name: string
+          plan_key: string
+          screenshot_data_url: string | null
+          status: string
+          subscription_end: string | null
+          subscription_start: string | null
+          txn_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          admin_remarks?: string | null
+          amount: number
+          billing_type: string
+          buyer_email: string
+          buyer_name: string
+          buyer_phone: string
+          category: string
+          created_at?: string | null
+          custom_modules?: string[] | null
+          id?: string
+          order_token?: string
+          package_id?: string | null
+          package_name: string
+          plan_key: string
+          screenshot_data_url?: string | null
+          status?: string
+          subscription_end?: string | null
+          subscription_start?: string | null
+          txn_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          admin_remarks?: string | null
+          amount?: number
+          billing_type?: string
+          buyer_email?: string
+          buyer_name?: string
+          buyer_phone?: string
+          category?: string
+          created_at?: string | null
+          custom_modules?: string[] | null
+          id?: string
+          order_token?: string
+          package_id?: string | null
+          package_name?: string
+          plan_key?: string
+          screenshot_data_url?: string | null
+          status?: string
+          subscription_end?: string | null
+          subscription_start?: string | null
+          txn_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "package_orders_package_id_fkey"
+            columns: ["package_id"]
+            isOneToOne: false
+            referencedRelation: "subscription_packages"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       pos_expenses: {
         Row: {
@@ -979,6 +1239,51 @@ export type Database = {
         }
         Relationships: []
       }
+      subscription_packages: {
+        Row: {
+          category: string
+          created_at: string | null
+          description: string | null
+          id: string
+          is_enabled: boolean | null
+          is_popular: boolean | null
+          monthly_price: number
+          name: string
+          one_time_price: number
+          plan_key: string
+          tier: number
+          updated_at: string | null
+        }
+        Insert: {
+          category: string
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          is_enabled?: boolean | null
+          is_popular?: boolean | null
+          monthly_price?: number
+          name: string
+          one_time_price?: number
+          plan_key: string
+          tier: number
+          updated_at?: string | null
+        }
+        Update: {
+          category?: string
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          is_enabled?: boolean | null
+          is_popular?: boolean | null
+          monthly_price?: number
+          name?: string
+          one_time_price?: number
+          plan_key?: string
+          tier?: number
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       testimonials: {
         Row: {
           avatar: string | null
@@ -1137,6 +1442,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      delete_package_order: {
+        Args: { p_order_id: string; p_secret: string }
+        Returns: undefined
+      }
+      disable_package: {
+        Args: { p_plan_key: string; p_secret: string }
+        Returns: undefined
+      }
       get_dine_in_order: {
         Args: { _id: string }
         Returns: {
@@ -1151,6 +1464,7 @@ export type Database = {
           updated_at: string
         }[]
       }
+      get_public_delivery_config: { Args: never; Returns: Json }
       get_table_by_code: {
         Args: { _code: string }
         Returns: {
@@ -1160,13 +1474,15 @@ export type Database = {
           table_no: number
         }[]
       }
-      has_role: {
-        Args: {
-          _role: Database["public"]["Enums"]["app_role"]
-          _user_id: string
-        }
-        Returns: boolean
-      }
+      has_role:
+        | {
+            Args: {
+              _role: Database["public"]["Enums"]["app_role"]
+              _user_id: string
+            }
+            Returns: boolean
+          }
+        | { Args: { _role: string; _user_id: string }; Returns: boolean }
       place_dine_in_order: {
         Args: {
           _code: string
@@ -1185,6 +1501,91 @@ export type Database = {
           _order_id: string
         }
         Returns: number
+      }
+      set_package_features: {
+        Args: { p_features: string[]; p_plan_key: string; p_secret: string }
+        Returns: undefined
+      }
+      set_package_modules: {
+        Args: { p_module_keys: string[]; p_plan_key: string; p_secret: string }
+        Returns: undefined
+      }
+      update_order_status: {
+        Args: { p_order_id: string; p_secret: string; p_status: string }
+        Returns: undefined
+      }
+      update_package_order:
+        | {
+            Args: {
+              p_admin_remarks: string
+              p_amount: number
+              p_billing_type: string
+              p_buyer_email: string
+              p_buyer_name: string
+              p_buyer_phone: string
+              p_order_id: string
+              p_secret: string
+              p_status: string
+              p_subscription_end: string
+              p_subscription_start: string
+              p_txn_id: string
+            }
+            Returns: undefined
+          }
+        | {
+            Args: {
+              p_admin_remarks: string
+              p_amount: number
+              p_billing_type: string
+              p_buyer_email: string
+              p_buyer_name: string
+              p_buyer_phone: string
+              p_custom_modules?: string[]
+              p_order_id: string
+              p_package_name?: string
+              p_plan_key?: string
+              p_secret: string
+              p_status: string
+              p_subscription_end: string
+              p_subscription_start: string
+              p_txn_id: string
+            }
+            Returns: undefined
+          }
+      update_package_order_status: {
+        Args: {
+          p_admin_remarks: string
+          p_order_id: string
+          p_secret: string
+          p_status: string
+        }
+        Returns: undefined
+      }
+      upsert_module_price: {
+        Args: {
+          p_description: string
+          p_module_key: string
+          p_module_name: string
+          p_monthly_price: number
+          p_one_time_price: number
+          p_secret: string
+        }
+        Returns: undefined
+      }
+      upsert_package: {
+        Args: {
+          p_category: string
+          p_description: string
+          p_is_enabled: boolean
+          p_is_popular: boolean
+          p_monthly_price: number
+          p_name: string
+          p_one_time_price: number
+          p_plan_key: string
+          p_secret: string
+          p_tier: number
+        }
+        Returns: string
       }
     }
     Enums: {
