@@ -20,6 +20,9 @@ import {
 import {
   DeliveryArea,
   DeliverySettings,
+  saveCachedDeliverySettings,
+  saveCachedDeliveryAreas,
+  DEFAULT_DELIVERY_SETTINGS,
 } from "@/lib/delivery";
 
 const emptyForm = {
@@ -49,8 +52,15 @@ const AdminDeliveryZones = () => {
       supabase.from("delivery_settings").select("*").maybeSingle(),
       supabase.from("delivery_areas").select("*").order("name"),
     ]);
-    if (s) setSettings(s as any);
-    setAreas((a as any) || []);
+    if (s) {
+      setSettings(s as any);
+      saveCachedDeliverySettings(s as any);
+    } else {
+      setSettings(DEFAULT_DELIVERY_SETTINGS);
+    }
+    const areaList = (a as any) || [];
+    setAreas(areaList);
+    saveCachedDeliveryAreas(areaList);
     setLoading(false);
   };
 
@@ -61,23 +71,30 @@ const AdminDeliveryZones = () => {
   const updateSettings = async () => {
     if (!settings) return;
     setSavingSettings(true);
-    const { error } = await supabase
-      .from("delivery_settings")
-      .update({
-        center_name: settings.center_name,
-        center_lat: settings.center_lat,
-        center_lng: settings.center_lng,
-        free_radius_km: settings.free_radius_km,
-        base_delivery_charges: settings.base_delivery_charges,
-      } as any)
-      .eq("id", settings.id);
-    if (error)
+    const payload = {
+      center_name: settings.center_name,
+      center_lat: settings.center_lat,
+      center_lng: settings.center_lng,
+      free_radius_km: settings.free_radius_km,
+      base_delivery_charges: settings.base_delivery_charges,
+    };
+    const isNew = !settings.id || settings.id === "default-pizza-king" || settings.id === "default";
+    const { data: updated, error } = isNew
+      ? await supabase.from("delivery_settings").insert(payload as any).select().maybeSingle()
+      : await supabase.from("delivery_settings").update(payload as any).eq("id", settings.id).select().maybeSingle();
+
+    if (error) {
       toast({
         title: "Failed to update",
         description: error.message,
         variant: "destructive",
       });
-    else toast({ title: "Main delivery zone updated ✅" });
+    } else {
+      const active = updated ? (updated as any) : settings;
+      setSettings(active);
+      saveCachedDeliverySettings(active);
+      toast({ title: "Main delivery zone updated ✅" });
+    }
     setSavingSettings(false);
   };
 
@@ -264,22 +281,24 @@ const AdminDeliveryZones = () => {
                   </Button>
                 </div>
 
-                <MapPicker
-                  lat={settings.center_lat}
-                  lng={settings.center_lng}
-                  radiusKm={settings.free_radius_km}
-                  onChange={(lat, lng) =>
-                    setSettings({ ...settings, center_lat: lat, center_lng: lng })
-                  }
-                  extras={areas
-                    .filter((a) => a.active)
-                    .map((a) => ({
-                      lat: Number(a.lat),
-                      lng: Number(a.lng),
-                      radiusKm: Number(a.radius_km),
-                    }))}
-                  height="380px"
-                />
+                <div className="relative isolate z-0 overflow-hidden rounded-xl border border-border">
+                  <MapPicker
+                    lat={settings.center_lat}
+                    lng={settings.center_lng}
+                    radiusKm={settings.free_radius_km}
+                    onChange={(lat, lng) =>
+                      setSettings({ ...settings, center_lat: lat, center_lng: lng })
+                    }
+                    extras={areas
+                      .filter((a) => a.active)
+                      .map((a) => ({
+                        lat: Number(a.lat),
+                        lng: Number(a.lng),
+                        radiusKm: Number(a.radius_km),
+                      }))}
+                    height="380px"
+                  />
+                </div>
               </>
             )}
           </CardContent>
@@ -446,14 +465,16 @@ const AdminDeliveryZones = () => {
                 Tip: click anywhere on the map or drag the pin to set the area center.
               </p>
 
-              <MapPicker
-                lat={form.lat}
-                lng={form.lng}
-                radiusKm={form.radius_km}
-                onChange={(lat, lng) => setForm({ ...form, lat, lng })}
-                height="280px"
-                scrollWheelZoom={false}
-              />
+              <div className="relative isolate z-0 overflow-hidden rounded-xl border border-border">
+                <MapPicker
+                  lat={form.lat}
+                  lng={form.lng}
+                  radiusKm={form.radius_km}
+                  onChange={(lat, lng) => setForm({ ...form, lat, lng })}
+                  height="280px"
+                  scrollWheelZoom={false}
+                />
+              </div>
 
               <div className="flex items-center justify-between">
                 <Label>Active</Label>

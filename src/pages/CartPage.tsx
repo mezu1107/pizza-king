@@ -99,8 +99,9 @@ const CartPage = () => {
 
   const generateWhatsAppMessage = () => {
     const itemsList = items.map((i) => `- ${i.title} x${i.quantity} = Rs.${(i.price * i.quantity).toLocaleString()}`).join("\n");
+    const mapLink = coords ? `\n🗺️ *GPS:* https://maps.google.com/?q=${coords.lat},${coords.lng}` : "";
     const zoneLine = zoneResult?.allowed
-      ? `\n📍 *Area:* ${zoneResult.label}\n🚚 *Delivery:* Rs.${deliveryCharges.toLocaleString()}`
+      ? `\n📍 *Area:* ${zoneResult.label}\n🚚 *Delivery:* Rs.${deliveryCharges.toLocaleString()}${mapLink}`
       : "";
     const couponLine = coupon ? `\n🎟️ *Coupon (${coupon.coupon.code}):* −Rs.${couponDiscount.toLocaleString()}` : "";
     const loyaltyLine = loyaltyDiscount > 0 ? `\n⭐ *Loyalty (${redeemPts} pts):* −Rs.${loyaltyDiscount.toLocaleString()}` : "";
@@ -136,8 +137,18 @@ const CartPage = () => {
     }
     setPlacing(true);
     try {
-      await supabase.from("profiles").update({ full_name: customerName, phone, address } as any).eq("user_id", user.id);
-      const { data: order, error: orderError } = await supabase.from("orders").insert({
+      try {
+        await supabase.from("profiles").upsert({
+          user_id: user.id,
+          full_name: customerName,
+          phone,
+          address,
+        } as any);
+      } catch (profErr) {
+        console.warn("Profile update skipped:", profErr);
+      }
+
+      const orderPayload: any = {
         user_id: user.id,
         total: grandTotal,
         subtotal,
@@ -151,8 +162,23 @@ const CartPage = () => {
         delivery_charges: deliveryCharges,
         points_earned: willEarn,
         points_redeemed: redeemPts,
-      } as any).select().single();
-      if (orderError) throw orderError;
+      };
+
+      if (coords?.lat && coords?.lng) {
+        orderPayload.delivery_lat = coords.lat;
+        orderPayload.delivery_lng = coords.lng;
+      }
+
+      let orderRes = await supabase.from("orders").insert(orderPayload).select().single();
+      // If delivery_lat/lng column is not yet present in DB schema, retry without it
+      if (orderRes.error && (orderRes.error.message.includes("delivery_lat") || orderRes.error.message.includes("column"))) {
+        delete orderPayload.delivery_lat;
+        delete orderPayload.delivery_lng;
+        orderRes = await supabase.from("orders").insert(orderPayload).select().single();
+      }
+
+      if (orderRes.error) throw orderRes.error;
+      const order = orderRes.data;
 
       const orderItems = items.map((item) => ({
         order_id: (order as any).id, food_id: item.id, title: item.title, quantity: item.quantity, price: item.price,
@@ -378,8 +404,10 @@ const CartPage = () => {
                       >
                         {placing
                           ? "Placing Order..."
-                          : !zoneResult?.allowed
+                          : !zoneResult
                           ? "Set your delivery location"
+                          : !zoneResult.allowed
+                          ? "Out of Delivery Zone"
                           : "Place Order & Send to WhatsApp"}
                       </Button>
                       <Button type="button" variant="outline" onClick={handleWhatsAppOrder}

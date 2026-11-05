@@ -187,4 +187,14 @@
     border: 3px solid hsl(var(--primary-foreground));
     box-shadow: 0 8px 18px hsl(var(--primary) / 0.28);
   }
+
+  /* Prevent Leaflet map panes from leaking above shadcn Dialogs */
+  .isolate .leaflet-pane,
+  .isolate .leaflet-map-pane {
+    z-index: 1 !important;
+  }
+  .isolate .leaflet-top,
+  .isolate .leaflet-bottom {
+    z-index: 2 !important;
+  }
 }

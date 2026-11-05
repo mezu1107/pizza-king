@@ -401,6 +401,75 @@ $$;
 
 GRANT EXECUTE ON FUNCTION disable_package TO anon, authenticated;
 
+-- 12e. RPC: update_package_order (admin only) — full edit of any order field
+CREATE OR REPLACE FUNCTION update_package_order(
+  p_secret             text,
+  p_order_id           uuid,
+  p_status             text,
+  p_billing_type       text,
+  p_amount             int,
+  p_buyer_name         text,
+  p_buyer_email        text,
+  p_buyer_phone        text,
+  p_txn_id             text,
+  p_subscription_start date,
+  p_subscription_end   date,
+  p_admin_remarks      text
+) RETURNS void
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+AS $$
+DECLARE
+  v_old_status text;
+BEGIN
+  IF p_secret IS DISTINCT FROM 'Ashu@1107' THEN
+    RAISE EXCEPTION 'Unauthorized';
+  END IF;
+
+  SELECT status INTO v_old_status FROM package_orders WHERE id = p_order_id;
+
+  UPDATE package_orders
+  SET status             = COALESCE(p_status, status),
+      billing_type       = COALESCE(p_billing_type, billing_type),
+      amount             = COALESCE(p_amount, amount),
+      buyer_name         = COALESCE(p_buyer_name, buyer_name),
+      buyer_email        = COALESCE(p_buyer_email, buyer_email),
+      buyer_phone        = COALESCE(p_buyer_phone, buyer_phone),
+      txn_id             = COALESCE(p_txn_id, txn_id),
+      subscription_start = COALESCE(p_subscription_start, subscription_start),
+      subscription_end   = COALESCE(p_subscription_end, subscription_end),
+      admin_remarks      = COALESCE(p_admin_remarks, admin_remarks),
+      updated_at         = now()
+  WHERE id = p_order_id;
+
+  IF p_status IS NOT NULL AND p_status IS DISTINCT FROM v_old_status THEN
+    INSERT INTO package_order_status_history (order_id, status, note, created_by)
+    VALUES (p_order_id, p_status, p_admin_remarks, 'admin');
+  END IF;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION update_package_order TO anon, authenticated;
+
+-- 12f. RPC: delete_package_order (admin only) — hard delete + history cascade
+CREATE OR REPLACE FUNCTION delete_package_order(
+  p_secret   text,
+  p_order_id uuid
+) RETURNS void
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+AS $$
+BEGIN
+  IF p_secret IS DISTINCT FROM 'Ashu@1107' THEN
+    RAISE EXCEPTION 'Unauthorized';
+  END IF;
+  DELETE FROM package_order_status_history WHERE order_id = p_order_id;
+  DELETE FROM package_orders WHERE id = p_order_id;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION delete_package_order TO anon, authenticated;
+
 -- 13. Seed: 6 default packages -------------------------------------------
 INSERT INTO subscription_packages
   (plan_key, name, category, tier, description, monthly_price, one_time_price, is_popular, is_enabled)
@@ -497,5 +566,69 @@ WHERE NOT EXISTS (
 );
 
 -- =============================================================================
--- DONE. No extra setup command needed — the secret is baked into the RPCs.
+-- PART C — Delivery Zones & Settings (Public Read for customer checkout)
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS delivery_settings (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  center_name text NOT NULL DEFAULT 'Pizza King Mankiala',
+  center_lat double precision NOT NULL DEFAULT 33.5651,
+  center_lng double precision NOT NULL DEFAULT 73.1486,
+  free_radius_km double precision NOT NULL DEFAULT 5,
+  base_delivery_charges double precision NOT NULL DEFAULT 0,
+  updated_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS delivery_areas (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name text NOT NULL,
+  lat double precision NOT NULL,
+  lng double precision NOT NULL,
+  radius_km double precision NOT NULL DEFAULT 1,
+  delivery_charges double precision NOT NULL DEFAULT 100,
+  active boolean NOT NULL DEFAULT true,
+  updated_at timestamptz DEFAULT now()
+);
+
+-- Ensure initial default row exists in delivery_settings if empty
+INSERT INTO delivery_settings (center_name, center_lat, center_lng, free_radius_km, base_delivery_charges)
+SELECT 'Pizza King Mankiala', 33.5651, 73.1486, 5, 0
+WHERE NOT EXISTS (SELECT 1 FROM delivery_settings);
+
+-- RLS policies: allow public/anon/authenticated to read delivery zones
+ALTER TABLE delivery_settings ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "delivery_settings_public_read" ON delivery_settings;
+CREATE POLICY "delivery_settings_public_read" ON delivery_settings FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "delivery_settings_authenticated_write" ON delivery_settings;
+CREATE POLICY "delivery_settings_authenticated_write" ON delivery_settings FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+ALTER TABLE delivery_areas ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "delivery_areas_public_read" ON delivery_areas;
+CREATE POLICY "delivery_areas_public_read" ON delivery_areas FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "delivery_areas_authenticated_write" ON delivery_areas;
+CREATE POLICY "delivery_areas_authenticated_write" ON delivery_areas FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+-- RPC for secure and guaranteed retrieval even if table RLS is modified
+CREATE OR REPLACE FUNCTION get_public_delivery_config()
+RETURNS json
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_settings json;
+  v_areas json;
+BEGIN
+  SELECT row_to_json(s) INTO v_settings FROM delivery_settings s LIMIT 1;
+  SELECT coalesce(json_agg(row_to_json(a)), '[]'::json) INTO v_areas FROM delivery_areas a WHERE a.active = true;
+  RETURN json_build_object('settings', v_settings, 'areas', v_areas);
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION get_public_delivery_config() TO anon, authenticated;
+
+-- =============================================================================
+-- DONE. Safe to re-run anytime.
 -- =============================================================================

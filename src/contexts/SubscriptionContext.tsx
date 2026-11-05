@@ -1,4 +1,6 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
 
 export const MODULE_PRICES: Record<string, { name: string; description: string; oneTime: number; monthly: number }> = {
   "/admin/deals": { name: "Deals Management", description: "Create and manage flash deals and promotions", oneTime: 2500, monthly: 999 },
@@ -64,9 +66,7 @@ export const MODULES: ModuleDefinition[] = [
   { key: "/rider/settings", name: "Settings", group: "rider", free: false },
 ];
 
-// Pricing & Plans — full expanded module list per plan_key. A higher tier
-// includes every module from lower tiers in the same category (expanded, not
-// computed). Mirrors the package_modules seed in supabase-setup.sql.
+// Pricing & Plans — full expanded module list per plan_key.
 export const PLAN_MODULES: Record<string, string[]> = {
   admin_starter: ["/admin/deals", "/admin/categories", "/admin/coupons"],
   admin_growth: [
@@ -113,9 +113,6 @@ export const PLAN_MODULES: Record<string, string[]> = {
   ],
 };
 
-// An active (approved) package plan owned by this device. Stored separately from
-// the legacy pizza_king_active_plans shape so the existing getPlan path is left
-// untouched.
 export interface ActivePlan {
   planKey: string;
   category: "admin" | "rider";
@@ -124,6 +121,7 @@ export interface ActivePlan {
   orderId?: string;
   subscriptionStart?: string | null;
   subscriptionEnd?: string | null;
+  customModules?: string[] | null;
 }
 
 const STORAGE_KEY = "pizza_king_modules";
@@ -138,13 +136,21 @@ interface SubscriptionContextType {
   // Pricing & Plans (package subscriptions)
   activePlans: ActivePlan[];
   unlockPackageModules: (planKey: string) => void;
+  lockPackageModules: (planKey: string) => void;
   addActivePlan: (order: ActivePlan) => void;
+  removeActivePlan: (planKey: string) => void;
   hasActivePlan: (category: "admin" | "rider") => boolean;
+  refreshSubscription: () => Promise<void>;
+  loading: boolean;
 }
 
 const SubscriptionContext = createContext<SubscriptionContextType | undefined>(undefined);
 
 export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
+  const { user } = useAuth();
+  const [loading, setLoading] = useState(true);
+
+  // 1. Unlocked modules from localStorage as initial seed
   const [unlockedModules, setUnlockedModules] = useState<string[]>(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
@@ -158,22 +164,7 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(unlockedModules));
   }, [unlockedModules]);
 
-  const isModuleLocked = (key: string): boolean => {
-    const mod = MODULES.find((m) => m.key === key);
-    if (!mod) return false;
-    if (mod.free) return false;
-    return !unlockedModules.includes(key);
-  };
-
-  const unlockModule = (key: string) => {
-    setUnlockedModules((prev) => (prev.includes(key) ? prev : [...prev, key]));
-  };
-
-  const lockModule = (key: string) => {
-    setUnlockedModules((prev) => prev.filter((k) => k !== key));
-  };
-
-  // ── Pricing & Plans: active package plans (separate localStorage key) ──
+  // 2. Active plans
   const [activePlans, setActivePlans] = useState<ActivePlan[]>(() => {
     try {
       const stored = localStorage.getItem(ACTIVE_PACKAGES_KEY);
@@ -187,20 +178,157 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
     localStorage.setItem(ACTIVE_PACKAGES_KEY, JSON.stringify(activePlans));
   }, [activePlans]);
 
-  // Unlock every module that the given plan grants access to.
+  const unlockModule = (key: string) => {
+    setUnlockedModules((prev) => (prev.includes(key) ? prev : [...prev, key]));
+  };
+
+  const lockModule = (key: string) => {
+    setUnlockedModules((prev) => prev.filter((k) => k !== key));
+  };
+
   const unlockPackageModules = (planKey: string) => {
     const modules = PLAN_MODULES[planKey];
     if (!modules) return;
     for (const key of modules) unlockModule(key);
   };
 
-  // Record an approved plan, persist it, and unlock its modules. Avoids
-  // duplicate entries for the same plan_key.
   const addActivePlan = (order: ActivePlan) => {
     setActivePlans((prev) =>
       prev.some((p) => p.planKey === order.planKey) ? prev : [...prev, order]
     );
-    unlockPackageModules(order.planKey);
+    if (order.customModules && order.customModules.length > 0) {
+      for (const m of order.customModules) unlockModule(m);
+    } else {
+      unlockPackageModules(order.planKey);
+    }
+  };
+
+  const lockPackageModules = (planKey: string) => {
+    const modules = PLAN_MODULES[planKey];
+    if (!modules) return;
+    for (const key of modules) lockModule(key);
+  };
+
+  const removeActivePlan = (planKey: string) => {
+    setActivePlans((prev) => prev.filter((p) => p.planKey !== planKey));
+    lockPackageModules(planKey);
+  };
+
+  // ── Database Sync: Automatically fetch subscriptions for the logged-in user/rider ──
+  const syncFromDB = useCallback(async () => {
+    const emailCandidate =
+      user?.email ||
+      localStorage.getItem("pizza_king_buyer_email") ||
+      sessionStorage.getItem("buyer_email");
+
+    if (!emailCandidate) {
+      setLoading(false);
+      return;
+    }
+
+    const cleanEmail = emailCandidate.trim().toLowerCase();
+
+    try {
+      // Query package_orders for any orders matching this buyer email
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await supabase
+        .from("package_orders" as any)
+        .select(
+          "id, plan_key, package_name, category, billing_type, status, subscription_start, subscription_end, custom_modules"
+        )
+        .ilike("buyer_email", cleanEmail)
+        .order("created_at", { ascending: false });
+
+      if (!error && Array.isArray(data)) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const rows = data as any[];
+        const activeRows = rows.filter(
+          (o) => o.status === "approved" || o.status === "active"
+        );
+
+        if (activeRows.length > 0) {
+          const newUnlocked = new Set<string>();
+          const newActivePlans: ActivePlan[] = [];
+
+          for (const row of activeRows) {
+            // If admin configured custom modules for this subscriber, grant those!
+            const grantedMods: string[] =
+              Array.isArray(row.custom_modules) && row.custom_modules.length > 0
+                ? row.custom_modules
+                : PLAN_MODULES[row.plan_key] || [];
+
+            for (const m of grantedMods) {
+              newUnlocked.add(m);
+            }
+
+            newActivePlans.push({
+              planKey: row.plan_key,
+              category: row.category,
+              billingType: row.billing_type,
+              packageName: row.package_name,
+              orderId: row.id,
+              subscriptionStart: row.subscription_start,
+              subscriptionEnd: row.subscription_end,
+              customModules: row.custom_modules ?? null,
+            });
+          }
+
+          setUnlockedModules(Array.from(newUnlocked));
+          setActivePlans(newActivePlans);
+        } else {
+          // If all orders for this user are explicitly blocked, cancelled, or rejected:
+          const isExplicitlyRevoked = rows.some(
+            (o) =>
+              o.status === "cancelled" ||
+              o.status === "blocked" ||
+              o.status === "rejected" ||
+              o.status === "expired"
+          );
+
+          if (isExplicitlyRevoked) {
+            // Revoke their category modules
+            const riderOrders = rows.filter((r) => r.category === "rider");
+            if (riderOrders.length > 0) {
+              // Lock all rider modules
+              setUnlockedModules((prev) => prev.filter((k) => !k.startsWith("/rider")));
+              setActivePlans((prev) => prev.filter((p) => p.category !== "rider"));
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("Subscription DB sync error:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.email]);
+
+  // Sync on mount or when user changes
+  useEffect(() => {
+    syncFromDB();
+
+    // Realtime Postgres changes on package_orders
+    const channel = supabase
+      .channel("package_orders_sub_sync")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "package_orders" },
+        () => {
+          syncFromDB();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [syncFromDB]);
+
+  const isModuleLocked = (key: string): boolean => {
+    const mod = MODULES.find((m) => m.key === key);
+    if (!mod) return false;
+    if (mod.free) return false;
+    return !unlockedModules.includes(key);
   };
 
   const hasActivePlan = (category: "admin" | "rider"): boolean =>
@@ -216,8 +344,12 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
         lockModule,
         activePlans,
         unlockPackageModules,
+        lockPackageModules,
         addActivePlan,
+        removeActivePlan,
         hasActivePlan,
+        refreshSubscription: syncFromDB,
+        loading,
       }}
     >
       {children}

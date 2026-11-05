@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import L from "leaflet";
+import "leaflet/dist/leaflet.css";
 
 const isValidCoord = (n: unknown): n is number =>
   typeof n === "number" && Number.isFinite(n);
@@ -73,6 +74,7 @@ const MapPicker = ({
     );
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 19,
     }).addTo(map);
 
     const marker = L.marker(initialCenterRef.current, { draggable: draggableRef.current, icon: pinIcon }).addTo(map);
@@ -89,7 +91,13 @@ const MapPicker = ({
     markerRef.current = marker;
     extrasRef.current = L.layerGroup().addTo(map);
 
+    // Ensure map tiles render properly even if container animated in
+    const t1 = setTimeout(() => map.invalidateSize(), 150);
+    const t2 = setTimeout(() => map.invalidateSize(), 500);
+
     return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
       map.remove();
       mapRef.current = null;
       markerRef.current = null;
@@ -145,7 +153,7 @@ const MapPicker = ({
 
   return (
     <div
-      className="rounded-xl overflow-hidden border border-border"
+      className="relative isolate z-0 rounded-xl overflow-hidden border border-border"
       style={{ height }}
     >
       <div ref={mapEl} className="h-full w-full" />

@@ -1,6 +1,6 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import AdminLayout from "@/components/admin/AdminLayout";
-import { useSubscription, MODULES } from "@/contexts/SubscriptionContext";
+import { useSubscription, MODULES, PLAN_MODULES } from "@/contexts/SubscriptionContext";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,6 +31,8 @@ import {
   Search,
   Download,
   X,
+  Ban,
+  Save,
 } from "lucide-react";
 import {
   usePackages,
@@ -44,6 +46,9 @@ import {
   usePackageOrders,
   approvePackageOrder,
   rejectPackageOrder,
+  updatePackageOrder,
+  deletePackageOrder,
+  grantSubscription,
   type PackageOrder,
 } from "@/hooks/usePackageOrders";
 
@@ -173,6 +178,13 @@ function statusBadge(status: PackageOrder["status"]) {
       return (
         <Badge variant="outline" className="text-gray-500 border-gray-300">
           Cancelled
+        </Badge>
+      );
+    case "blocked":
+      return (
+        <Badge variant="destructive" className="bg-red-600 text-white border-red-700">
+          <Ban className="w-3 h-3 mr-1" />
+          Blocked
         </Badge>
       );
     default:
@@ -597,6 +609,508 @@ function ManagePlansTab() {
   );
 }
 
+// Predefined package catalog for quick plan switching & assignment
+const ALL_AVAILABLE_PLANS = [
+  { key: "admin_starter", name: "Admin Starter", category: "admin", defaultPrice: 999 },
+  { key: "admin_growth", name: "Admin Growth", category: "admin", defaultPrice: 3499 },
+  { key: "admin_enterprise", name: "Admin Enterprise", category: "admin", defaultPrice: 6999 },
+  { key: "rider_essential", name: "Rider Essential", category: "rider", defaultPrice: 999 },
+  { key: "rider_professional", name: "Rider Professional", category: "rider", defaultPrice: 1999 },
+  { key: "rider_elite", name: "Rider Elite", category: "rider", defaultPrice: 3499 },
+];
+
+// ─── Edit Order / Access Dialog (full CRUD) ───────────────────────────────────
+
+function EditOrderDialog({
+  order,
+  open,
+  onClose,
+  onSaved,
+}: {
+  order: PackageOrder | null;
+  open: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { toast } = useToast();
+  const { removeActivePlan, addActivePlan } = useSubscription();
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({
+    buyerName: "",
+    buyerEmail: "",
+    buyerPhone: "",
+    planKey: "",
+    packageName: "",
+    category: "admin" as "admin" | "rider",
+    txnId: "",
+    amount: "0",
+    billingType: "monthly" as "monthly" | "one_time",
+    status: "pending" as string,
+    subscriptionStart: "",
+    subscriptionEnd: "",
+    adminRemarks: "",
+  });
+  const [customModules, setCustomModules] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (order) {
+      setForm({
+        buyerName: order.buyerName,
+        buyerEmail: order.buyerEmail,
+        buyerPhone: order.buyerPhone,
+        planKey: order.planKey,
+        packageName: order.packageName,
+        category: (order.category as "admin" | "rider") || "admin",
+        txnId: order.txnId,
+        amount: String(order.amount),
+        billingType: order.billingType,
+        status: order.status,
+        subscriptionStart: order.subscriptionStart ?? "",
+        subscriptionEnd: order.subscriptionEnd ?? "",
+        adminRemarks: order.adminRemarks ?? "",
+      });
+
+      const initialMods =
+        order.customModules && Array.isArray(order.customModules) && order.customModules.length > 0
+          ? order.customModules
+          : PLAN_MODULES[order.planKey] || [];
+      setCustomModules(initialMods);
+    }
+  }, [order]);
+
+  const handlePlanChange = (newPlanKey: string) => {
+    const selected = ALL_AVAILABLE_PLANS.find((p) => p.key === newPlanKey);
+    if (!selected) return;
+    setForm((prev) => ({
+      ...prev,
+      planKey: selected.key,
+      packageName: selected.name,
+      category: selected.category as "admin" | "rider",
+      amount: String(selected.defaultPrice),
+    }));
+    const defaultMods = PLAN_MODULES[selected.key] || [];
+    setCustomModules(defaultMods);
+  };
+
+  const toggleModule = (moduleKey: string) => {
+    setCustomModules((prev) =>
+      prev.includes(moduleKey) ? prev.filter((k) => k !== moduleKey) : [...prev, moduleKey]
+    );
+  };
+
+  const selectAllCategoryModules = () => {
+    const all = MODULES.filter((m) => m.group === form.category && !m.free).map((m) => m.key);
+    setCustomModules(all);
+  };
+
+  const clearCategoryModules = () => {
+    setCustomModules([]);
+  };
+
+  const handleSave = async () => {
+    if (!order) return;
+    setSaving(true);
+    try {
+      await updatePackageOrder(order.id, {
+        buyerName: form.buyerName.trim(),
+        buyerEmail: form.buyerEmail.trim(),
+        buyerPhone: form.buyerPhone.trim(),
+        planKey: form.planKey,
+        packageName: form.packageName,
+        category: form.category,
+        customModules,
+        txnId: form.txnId.trim(),
+        amount: Number(form.amount) || 0,
+        billingType: form.billingType,
+        status: form.status,
+        subscriptionStart: form.subscriptionStart || null,
+        subscriptionEnd: form.billingType === "one_time" ? null : form.subscriptionEnd || null,
+        adminRemarks: form.adminRemarks.trim() || null,
+      });
+
+      if (
+        form.status === "cancelled" ||
+        form.status === "blocked" ||
+        form.status === "expired" ||
+        form.status === "rejected"
+      ) {
+        removeActivePlan(order.planKey);
+      } else if (form.status === "active" || form.status === "approved") {
+        addActivePlan({
+          planKey: form.planKey,
+          category: form.category,
+          billingType: form.billingType,
+          packageName: form.packageName,
+          orderId: order.id,
+          subscriptionStart: form.subscriptionStart,
+          subscriptionEnd: form.subscriptionEnd,
+          customModules,
+        });
+      }
+
+      toast({ title: "Subscriber access updated ✅", description: `${form.buyerName} permissions saved.` });
+      onSaved();
+      onClose();
+    } catch (err) {
+      toast({
+        title: "Update failed",
+        description: String((err as Error).message),
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!order) return null;
+
+  const availableCategoryModules = MODULES.filter((m) => m.group === form.category && !m.free);
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Edit Subscriber & Access Control</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 pt-2">
+          {/* Plan selector */}
+          <div className="bg-primary/5 p-3 rounded-lg border border-primary/20 space-y-2">
+            <Label className="font-semibold text-primary">Assigned Plan (Change Plan)</Label>
+            <select
+              value={form.planKey}
+              onChange={(e) => handlePlanChange(e.target.value)}
+              className="w-full border rounded-md h-9 px-2 text-sm bg-background font-medium"
+            >
+              {ALL_AVAILABLE_PLANS.map((p) => (
+                <option key={p.key} value={p.key}>
+                  {p.name} ({p.category.toUpperCase()} · PKR {p.defaultPrice.toLocaleString()})
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground">
+              Changing the plan automatically updates default unlocked modules. You can fine-tune access below.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Buyer Name</Label>
+              <Input value={form.buyerName} onChange={(e) => setForm({ ...form, buyerName: e.target.value })} />
+            </div>
+            <div>
+              <Label>Phone</Label>
+              <Input value={form.buyerPhone} onChange={(e) => setForm({ ...form, buyerPhone: e.target.value })} />
+            </div>
+          </div>
+
+          <div>
+            <Label>User / Rider Email</Label>
+            <Input value={form.buyerEmail} onChange={(e) => setForm({ ...form, buyerEmail: e.target.value })} />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Status & Access State</Label>
+              <select
+                value={form.status}
+                onChange={(e) => setForm({ ...form, status: e.target.value })}
+                className="w-full border rounded-md h-9 px-2 text-sm bg-background font-medium"
+              >
+                <option value="active">Active (Access Granted) ✅</option>
+                <option value="approved">Approved ✅</option>
+                <option value="pending">Pending ⏳</option>
+                <option value="blocked">Blocked (Access Revoked) 🚫</option>
+                <option value="cancelled">Cancelled ❌</option>
+                <option value="expired">Expired ⌛</option>
+                <option value="rejected">Rejected ❌</option>
+              </select>
+            </div>
+            <div>
+              <Label>Billing Type</Label>
+              <select
+                value={form.billingType}
+                onChange={(e) => setForm({ ...form, billingType: e.target.value as "monthly" | "one_time" })}
+                className="w-full border rounded-md h-9 px-2 text-sm bg-background"
+              >
+                <option value="monthly">Monthly</option>
+                <option value="one_time">One-time (Lifetime)</option>
+              </select>
+            </div>
+          </div>
+
+          {form.billingType === "monthly" && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Start Date</Label>
+                <Input type="date" value={form.subscriptionStart} onChange={(e) => setForm({ ...form, subscriptionStart: e.target.value })} />
+              </div>
+              <div>
+                <Label>Expiry Date</Label>
+                <Input type="date" value={form.subscriptionEnd} onChange={(e) => setForm({ ...form, subscriptionEnd: e.target.value })} />
+              </div>
+            </div>
+          )}
+
+          {/* Granular Module Control (Permission Checkboxes) */}
+          <div className="border rounded-lg p-3 space-y-2 bg-muted/20">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="font-semibold text-sm">Granular Module Access</Label>
+                <p className="text-xs text-muted-foreground">
+                  Uncheck modules to restrict access, or check to grant access ({customModules.length} active)
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button type="button" size="sm" variant="outline" className="h-7 text-xs" onClick={selectAllCategoryModules}>
+                  Select All
+                </Button>
+                <Button type="button" size="sm" variant="outline" className="h-7 text-xs text-destructive" onClick={clearCategoryModules}>
+                  Clear
+                </Button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 max-h-48 overflow-y-auto">
+              {availableCategoryModules.map((m) => {
+                const checked = customModules.includes(m.key);
+                return (
+                  <label
+                    key={m.key}
+                    className={`flex items-center gap-2 p-2 rounded-md border text-xs cursor-pointer transition-colors ${
+                      checked ? "bg-primary/10 border-primary/40 font-medium" : "bg-card border-border text-muted-foreground opacity-70"
+                    }`}
+                  >
+                    <Checkbox checked={checked} onCheckedChange={() => toggleModule(m.key)} />
+                    <span className="truncate">{m.name}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>TRX ID</Label>
+              <Input value={form.txnId} onChange={(e) => setForm({ ...form, txnId: e.target.value })} />
+            </div>
+            <div>
+              <Label>Amount (PKR)</Label>
+              <Input type="number" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
+            </div>
+          </div>
+
+          <div>
+            <Label>Admin Remarks</Label>
+            <Textarea
+              rows={2}
+              value={form.adminRemarks}
+              onChange={(e) => setForm({ ...form, adminRemarks: e.target.value })}
+              placeholder="e.g. Granted by Admin or reason for blocking…"
+            />
+          </div>
+
+          <DialogFooter className="gap-2 pt-2">
+            <Button variant="outline" onClick={onClose}>Cancel</Button>
+            <Button onClick={handleSave} disabled={saving} className="gap-2">
+              <Save className="w-4 h-4" />
+              {saving ? "Saving…" : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Grant Subscription Dialog (Add New Subscriber directly) ──────────────────
+
+function GrantSubscriptionDialog({
+  open,
+  onClose,
+  onGranted,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onGranted: () => void;
+}) {
+  const { toast } = useToast();
+  const [granting, setGranting] = useState(false);
+  const [form, setForm] = useState({
+    buyerName: "",
+    buyerEmail: "",
+    buyerPhone: "",
+    planKey: "rider_essential",
+    billingType: "monthly" as "monthly" | "one_time",
+    amount: "999",
+    status: "active",
+    adminRemarks: "Granted directly by admin",
+  });
+  const [customModules, setCustomModules] = useState<string[]>(PLAN_MODULES["rider_essential"] || []);
+
+  const handlePlanSelect = (planKey: string) => {
+    const selected = ALL_AVAILABLE_PLANS.find((p) => p.key === planKey);
+    if (!selected) return;
+    setForm((prev) => ({
+      ...prev,
+      planKey: selected.key,
+      amount: String(selected.defaultPrice),
+    }));
+    setCustomModules(PLAN_MODULES[selected.key] || []);
+  };
+
+  const selectedPlanObj = ALL_AVAILABLE_PLANS.find((p) => p.key === form.planKey) || ALL_AVAILABLE_PLANS[0];
+  const availableModules = MODULES.filter((m) => m.group === selectedPlanObj.category && !m.free);
+
+  const toggleModule = (moduleKey: string) => {
+    setCustomModules((prev) =>
+      prev.includes(moduleKey) ? prev.filter((k) => k !== moduleKey) : [...prev, moduleKey]
+    );
+  };
+
+  const handleGrant = async () => {
+    if (!form.buyerEmail.trim() || !form.buyerName.trim()) {
+      toast({ title: "Name and Email are required", variant: "destructive" });
+      return;
+    }
+
+    setGranting(true);
+    try {
+      await grantSubscription({
+        planKey: selectedPlanObj.key,
+        packageName: selectedPlanObj.name,
+        category: selectedPlanObj.category as "admin" | "rider",
+        billingType: form.billingType,
+        amount: Number(form.amount) || 0,
+        buyerName: form.buyerName.trim(),
+        buyerEmail: form.buyerEmail.trim(),
+        buyerPhone: form.buyerPhone.trim(),
+        status: form.status,
+        customModules,
+        adminRemarks: form.adminRemarks.trim(),
+      });
+
+      toast({
+        title: "Subscription Granted 🎉",
+        description: `${selectedPlanObj.name} activated for ${form.buyerEmail}.`,
+      });
+      onGranted();
+      onClose();
+    } catch (err) {
+      toast({
+        title: "Grant failed",
+        description: String((err as Error).message),
+        variant: "destructive",
+      });
+    } finally {
+      setGranting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Grant Subscription / Add Subscriber</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 pt-2">
+          <div>
+            <Label>Select Plan to Grant</Label>
+            <select
+              value={form.planKey}
+              onChange={(e) => handlePlanSelect(e.target.value)}
+              className="w-full border rounded-md h-9 px-2 text-sm bg-background font-medium"
+            >
+              {ALL_AVAILABLE_PLANS.map((p) => (
+                <option key={p.key} value={p.key}>
+                  {p.name} ({p.category.toUpperCase()} · PKR {p.defaultPrice.toLocaleString()})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>User / Rider Name *</Label>
+              <Input
+                placeholder="Full Name"
+                value={form.buyerName}
+                onChange={(e) => setForm({ ...form, buyerName: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label>Phone</Label>
+              <Input
+                placeholder="0300 1234567"
+                value={form.buyerPhone}
+                onChange={(e) => setForm({ ...form, buyerPhone: e.target.value })}
+              />
+            </div>
+          </div>
+
+          <div>
+            <Label>Login Email *</Label>
+            <Input
+              type="email"
+              placeholder="user@example.com (used for app login)"
+              value={form.buyerEmail}
+              onChange={(e) => setForm({ ...form, buyerEmail: e.target.value })}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Billing</Label>
+              <select
+                value={form.billingType}
+                onChange={(e) => setForm({ ...form, billingType: e.target.value as "monthly" | "one_time" })}
+                className="w-full border rounded-md h-9 px-2 text-sm bg-background"
+              >
+                <option value="monthly">Monthly</option>
+                <option value="one_time">One-time (Lifetime)</option>
+              </select>
+            </div>
+            <div>
+              <Label>Status</Label>
+              <select
+                value={form.status}
+                onChange={(e) => setForm({ ...form, status: e.target.value })}
+                className="w-full border rounded-md h-9 px-2 text-sm bg-background font-medium"
+              >
+                <option value="active">Active (Immediate Access)</option>
+                <option value="pending">Pending</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Module checklist */}
+          <div className="border rounded-lg p-3 space-y-2 bg-muted/20">
+            <Label className="font-semibold text-xs">Included Modules ({customModules.length} selected)</Label>
+            <div className="grid grid-cols-2 gap-2 pt-1 max-h-36 overflow-y-auto">
+              {availableModules.map((m) => {
+                const checked = customModules.includes(m.key);
+                return (
+                  <label key={m.key} className="flex items-center gap-2 p-1.5 rounded border text-xs cursor-pointer">
+                    <Checkbox checked={checked} onCheckedChange={() => toggleModule(m.key)} />
+                    <span className="truncate">{m.name}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={onClose}>Cancel</Button>
+            <Button onClick={handleGrant} disabled={granting} className="gap-2 bg-primary">
+              <CheckCircle className="w-4 h-4" />
+              {granting ? "Granting…" : "Grant Subscription"}
+            </Button>
+          </DialogFooter>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── Tab 2: Purchase Requests ─────────────────────────────────────────────────
 
 function PurchaseRequestsTab({
@@ -608,12 +1122,14 @@ function PurchaseRequestsTab({
   loading: boolean;
   refresh: () => void;
 }) {
-  const { addActivePlan, unlockPackageModules } = useSubscription();
+  const { addActivePlan, unlockPackageModules, removeActivePlan } = useSubscription();
   const { toast } = useToast();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [remarks, setRemarks] = useState<Record<string, string>>({});
+  const [editingOrder, setEditingOrder] = useState<PackageOrder | null>(null);
+  const [grantOpen, setGrantOpen] = useState(false);
 
   const filtered = orders.filter((o) => {
     if (statusFilter !== "all" && o.status !== statusFilter) return false;
@@ -667,6 +1183,48 @@ function PurchaseRequestsTab({
     }
   };
 
+  const handleBlock = async (order: PackageOrder) => {
+    if (!confirm(`Block/cancel ${order.buyerName}'s subscription to ${order.packageName}? This will revoke module access.`)) return;
+    try {
+      await updatePackageOrder(order.id, { status: "blocked", adminRemarks: "Subscription blocked by admin" });
+      removeActivePlan(order.planKey);
+      toast({ title: "Subscription blocked 🚫", description: `${order.packageName} access revoked for ${order.buyerName}.` });
+      refresh();
+    } catch (err) {
+      toast({ title: "Block failed", description: String((err as Error).message), variant: "destructive" });
+    }
+  };
+
+  const handleUnblock = async (order: PackageOrder) => {
+    try {
+      await updatePackageOrder(order.id, { status: "active", adminRemarks: "Access restored by admin" });
+      addActivePlan({
+        planKey: order.planKey,
+        category: order.category as "admin" | "rider",
+        billingType: order.billingType,
+        packageName: order.packageName,
+        orderId: order.id,
+        customModules: order.customModules,
+      });
+      unlockPackageModules(order.planKey);
+      toast({ title: "Access restored ✅", description: `${order.packageName} activated for ${order.buyerName}.` });
+      refresh();
+    } catch (err) {
+      toast({ title: "Unblock failed", description: String((err as Error).message), variant: "destructive" });
+    }
+  };
+
+  const handleDelete = async (order: PackageOrder) => {
+    if (!confirm(`Permanently delete ${order.packageName} order from ${order.buyerName}? This cannot be undone.`)) return;
+    try {
+      await deletePackageOrder(order.id);
+      toast({ title: "Order deleted", description: `${order.packageName} — ${order.buyerName} removed.` });
+      refresh();
+    } catch (err) {
+      toast({ title: "Delete failed", description: String((err as Error).message), variant: "destructive" });
+    }
+  };
+
   if (loading) {
     return (
       <div className="space-y-4">
@@ -679,39 +1237,45 @@ function PurchaseRequestsTab({
 
   return (
     <div className="space-y-4">
-      {/* Search + filters */}
-      <div className="flex flex-col sm:flex-row gap-2">
-        <div className="relative flex-1">
-          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            placeholder="Search name, email or order token…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-8"
-          />
+      {/* Search + filters + grant action */}
+      <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center justify-between">
+        <div className="flex flex-1 flex-col sm:flex-row gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Search name, email or order token…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-8"
+            />
+          </div>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="border rounded-md h-9 px-2 text-sm bg-background"
+          >
+            <option value="all">All Status</option>
+            <option value="pending">Pending</option>
+            <option value="active">Active</option>
+            <option value="approved">Approved</option>
+            <option value="blocked">Blocked</option>
+            <option value="rejected">Rejected</option>
+            <option value="expired">Expired</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="border rounded-md h-9 px-2 text-sm bg-background"
+          >
+            <option value="all">All Categories</option>
+            <option value="admin">Admin</option>
+            <option value="rider">Rider</option>
+          </select>
         </div>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="border rounded-md h-9 px-2 text-sm bg-background"
-        >
-          <option value="all">All Status</option>
-          <option value="pending">Pending</option>
-          <option value="approved">Approved</option>
-          <option value="rejected">Rejected</option>
-          <option value="active">Active</option>
-          <option value="expired">Expired</option>
-          <option value="cancelled">Cancelled</option>
-        </select>
-        <select
-          value={categoryFilter}
-          onChange={(e) => setCategoryFilter(e.target.value)}
-          className="border rounded-md h-9 px-2 text-sm bg-background"
-        >
-          <option value="all">All Categories</option>
-          <option value="admin">Admin</option>
-          <option value="rider">Rider</option>
-        </select>
+        <Button onClick={() => setGrantOpen(true)} className="gap-2 bg-gradient-to-r from-orange-500 to-red-600 text-white shrink-0">
+          <Plus className="w-4 h-4" /> Grant Subscription
+        </Button>
       </div>
 
       {filtered.length === 0 ? (
@@ -806,7 +1370,7 @@ function PurchaseRequestsTab({
                         setRemarks((r) => ({ ...r, [order.id]: e.target.value }))
                       }
                     />
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       <Button
                         size="sm"
                         className="bg-green-600 hover:bg-green-700 text-white gap-1"
@@ -827,6 +1391,46 @@ function PurchaseRequestsTab({
                     </div>
                   </div>
                 )}
+
+                {/* Always-available CRUD actions */}
+                <div className="flex flex-wrap gap-2 border-t pt-3">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1 font-medium"
+                    onClick={() => setEditingOrder(order)}
+                  >
+                    <Pencil className="w-3.5 h-3.5" /> Edit Access &amp; Plan
+                  </Button>
+                  {(order.status === "approved" || order.status === "active") && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1 text-orange-600 hover:text-orange-700 font-medium"
+                      onClick={() => handleBlock(order)}
+                    >
+                      <Ban className="w-3.5 h-3.5" /> Block Access
+                    </Button>
+                  )}
+                  {(order.status === "blocked" || order.status === "cancelled") && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1 text-green-600 hover:text-green-700 font-medium"
+                      onClick={() => handleUnblock(order)}
+                    >
+                      <CheckCircle className="w-3.5 h-3.5" /> Unblock Access
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1 text-destructive hover:text-destructive"
+                    onClick={() => handleDelete(order)}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> Delete
+                  </Button>
+                </div>
 
                 {/* Inline status-history timeline */}
                 {order.history.length > 0 && (
@@ -852,6 +1456,8 @@ function PurchaseRequestsTab({
           ))}
         </div>
       )}
+      <EditOrderDialog order={editingOrder} open={!!editingOrder} onClose={() => setEditingOrder(null)} onSaved={refresh} />
+      <GrantSubscriptionDialog open={grantOpen} onClose={() => setGrantOpen(false)} onGranted={refresh} />
     </div>
   );
 }
@@ -861,14 +1467,30 @@ function PurchaseRequestsTab({
 function PurchaseHistoryTab({
   orders,
   loading,
+  refresh,
 }: {
   orders: PackageOrder[];
   loading: boolean;
+  refresh: () => void;
 }) {
+  const { toast } = useToast();
+  const { removeActivePlan } = useSubscription();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
+  const [editingOrder, setEditingOrder] = useState<PackageOrder | null>(null);
+
+  const handleDelete = async (order: PackageOrder) => {
+    if (!confirm(`Permanently delete ${order.packageName} order from ${order.buyerName}?`)) return;
+    try {
+      await deletePackageOrder(order.id);
+      toast({ title: "Order deleted", description: `${order.packageName} — ${order.buyerName} removed.` });
+      refresh();
+    } catch (err) {
+      toast({ title: "Delete failed", description: String((err as Error).message), variant: "destructive" });
+    }
+  };
 
   const filtered = useMemo(() => {
     const list = orders.filter((o) => {
@@ -1012,6 +1634,7 @@ function PurchaseHistoryTab({
                   </button>
                 </th>
                 <th className="text-left font-medium px-3 py-2">Updated</th>
+                <th className="text-left font-medium px-3 py-2">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -1055,6 +1678,16 @@ function PurchaseHistoryTab({
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap">{fmtDate(o.createdAt)}</td>
                     <td className="px-3 py-2 whitespace-nowrap">{fmtDate(o.updatedAt)}</td>
+                    <td className="px-3 py-2">
+                      <div className="flex gap-1">
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setEditingOrder(o)} title="Edit">
+                          <Pencil className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive" onClick={() => handleDelete(o)} title="Delete">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    </td>
                   </tr>
                 );
               })}
@@ -1062,6 +1695,7 @@ function PurchaseHistoryTab({
           </table>
         </div>
       )}
+      <EditOrderDialog order={editingOrder} open={!!editingOrder} onClose={() => setEditingOrder(null)} onSaved={refresh} />
     </div>
   );
 }
@@ -1113,7 +1747,7 @@ function SubscriptionDashboard({ onLogout }: { onLogout: () => void }) {
             />
           </TabsContent>
           <TabsContent value="history" className="pt-4">
-            <PurchaseHistoryTab orders={orders} loading={ordersLoading} />
+            <PurchaseHistoryTab orders={orders} loading={ordersLoading} refresh={refresh} />
           </TabsContent>
         </Tabs>
       </div>

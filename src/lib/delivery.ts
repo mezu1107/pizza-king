@@ -26,6 +26,69 @@ export interface ZoneCheckResult {
   label?: string;
   area?: DeliveryArea;
   reason?: string;
+  distanceKm?: number;
+}
+
+export const DEFAULT_DELIVERY_SETTINGS: DeliverySettings = {
+  id: "default-pizza-king",
+  center_name: "Pizza King Mankiala",
+  center_lat: 33.5651,
+  center_lng: 73.1486,
+  free_radius_km: 5,
+  base_delivery_charges: 0,
+};
+
+export const DELIVERY_STORAGE_KEY = "pizza_king_delivery_settings";
+export const DELIVERY_AREAS_STORAGE_KEY = "pizza_king_delivery_areas";
+
+export function getCachedDeliverySettings(): DeliverySettings {
+  try {
+    const raw = localStorage.getItem(DELIVERY_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (
+        parsed &&
+        typeof parsed.center_lat === "number" &&
+        typeof parsed.center_lng === "number" &&
+        !isNaN(parsed.center_lat) &&
+        !isNaN(parsed.center_lng)
+      ) {
+        return parsed;
+      }
+    }
+  } catch {
+    // fallback
+  }
+  return DEFAULT_DELIVERY_SETTINGS;
+}
+
+export function saveCachedDeliverySettings(settings: DeliverySettings): void {
+  try {
+    localStorage.setItem(DELIVERY_STORAGE_KEY, JSON.stringify(settings));
+  } catch {
+    // ignore
+  }
+}
+
+export function getCachedDeliveryAreas(): DeliveryArea[] {
+  try {
+    const raw = localStorage.getItem(DELIVERY_AREAS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch {
+    // fallback
+  }
+  return [];
+}
+
+export function saveCachedDeliveryAreas(areas: DeliveryArea[]): void {
+  try {
+    localStorage.setItem(DELIVERY_AREAS_STORAGE_KEY, JSON.stringify(areas));
+  } catch {
+    // ignore
+  }
 }
 
 // Haversine distance in km
@@ -49,20 +112,32 @@ export function checkZone(
   lat: number,
   lng: number,
   settings: DeliverySettings | null,
-  areas: DeliveryArea[]
+  areas: DeliveryArea[] = []
 ): ZoneCheckResult {
-  if (!settings) {
-    return { allowed: false, reason: "Delivery is not configured yet." };
+  if (typeof lat !== "number" || typeof lng !== "number" || isNaN(lat) || isNaN(lng)) {
+    return {
+      allowed: false,
+      reason: "Please select a valid location on the map.",
+    };
   }
 
+  const activeSettings = settings || DEFAULT_DELIVERY_SETTINGS;
+
   // Inside main free-delivery radius?
-  const dMain = distanceKm(lat, lng, Number(settings.center_lat), Number(settings.center_lng));
-  if (dMain <= Number(settings.free_radius_km)) {
+  const dMain = distanceKm(
+    lat,
+    lng,
+    Number(activeSettings.center_lat),
+    Number(activeSettings.center_lng)
+  );
+
+  if (dMain <= Number(activeSettings.free_radius_km)) {
     return {
       allowed: true,
       type: "main",
-      charges: Number(settings.base_delivery_charges) || 0,
-      label: `${settings.center_name} (${dMain.toFixed(1)} km away)`,
+      charges: Number(activeSettings.base_delivery_charges) || 0,
+      label: `${activeSettings.center_name} (${dMain.toFixed(1)} km away)`,
+      distanceKm: dMain,
     };
   }
 
@@ -75,14 +150,16 @@ export function checkZone(
         allowed: true,
         type: "area",
         charges: Number(area.delivery_charges) || 0,
-        label: area.name,
+        label: `${area.name} (${d.toFixed(1)} km away)`,
         area,
+        distanceKm: d,
       };
     }
   }
 
   return {
     allowed: false,
-    reason: "Sorry, we don't deliver to your location yet.",
+    distanceKm: dMain,
+    reason: `Out of delivery zone (${dMain.toFixed(1)} km away). Sorry, we don't deliver to your location yet.`,
   };
 }

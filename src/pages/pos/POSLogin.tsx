@@ -31,7 +31,7 @@ export default function POSLogin() {
       .from("user_roles")
       .select("role")
       .eq("user_id", user.id)
-      .eq("role", "admin")
+      .in("role", ["admin", "pos_staff"])
       .maybeSingle()
       .then(({ data }) => {
         if (data) navigate(from, { replace: true });
@@ -61,7 +61,7 @@ export default function POSLogin() {
       .from("user_roles")
       .select("role")
       .eq("user_id", authData.user.id)
-      .eq("role", "admin")
+      .in("role", ["admin", "pos_staff"])
       .maybeSingle();
 
     if (!roleData) {
