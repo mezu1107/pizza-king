@@ -25,13 +25,13 @@ export default function POSLogin() {
   const from = (location.state as { from?: string } | null)?.from || "/pos";
 
   useEffect(() => {
-    // Already signed in with an admin role? send them straight in.
+    // POS pages are currently restricted to administrators.
     if (!user) return;
     supabase
       .from("user_roles")
       .select("role")
       .eq("user_id", user.id)
-      .in("role", ["admin", "pos_staff"])
+      .eq("role", "admin")
       .maybeSingle()
       .then(({ data }) => {
         if (data) navigate(from, { replace: true });
@@ -61,7 +61,7 @@ export default function POSLogin() {
       .from("user_roles")
       .select("role")
       .eq("user_id", authData.user.id)
-      .in("role", ["admin", "pos_staff"])
+      .eq("role", "admin")
       .maybeSingle();
 
     if (!roleData) {

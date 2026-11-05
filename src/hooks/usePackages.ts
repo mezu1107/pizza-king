@@ -270,19 +270,13 @@ export function usePackages(): {
 
 // ─── Standalone admin write helpers ──────────────────────────────────────────
 
-// Admin RPC secret — read from env var (set on Vercel), fallback for local dev.
-const ADMIN_RPC_SECRET =
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_ADMIN_RPC_SECRET) ||
-  "Ashu@1107";
-
 /** Create or update a plan by plan_key via the SECURITY DEFINER RPC. */
 export async function upsertPackage(
   pkg: Partial<Package> & { planKey: string; name: string; category: "admin" | "rider"; tier: number }
 ): Promise<string | null> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data, error } = await (supabase as any).rpc("upsert_package", {
-    p_secret: ADMIN_RPC_SECRET,
+    p_secret: "",
     p_plan_key: pkg.planKey,
     p_name: pkg.name,
     p_category: pkg.category,
@@ -302,7 +296,7 @@ export async function upsertPackage(
 export async function deletePackage(planKey: string): Promise<void> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { error } = await (supabase as any).rpc("disable_package", {
-    p_secret: ADMIN_RPC_SECRET,
+    p_secret: "",
     p_plan_key: planKey,
   });
   if (error) throw new Error(error.message);
@@ -315,7 +309,7 @@ export async function setPackageModules(
 ): Promise<void> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { error } = await (supabase as any).rpc("set_package_modules", {
-    p_secret: ADMIN_RPC_SECRET,
+    p_secret: "",
     p_plan_key: planKey,
     p_module_keys: moduleKeys,
   });
@@ -329,7 +323,7 @@ export async function setPackageFeatures(
 ): Promise<void> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { error } = await (supabase as any).rpc("set_package_features", {
-    p_secret: ADMIN_RPC_SECRET,
+    p_secret: "",
     p_plan_key: planKey,
     p_features: features,
   });

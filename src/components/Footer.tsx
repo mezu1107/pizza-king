@@ -1,29 +1,11 @@
-import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { MapPin, Phone, Mail, Clock, Facebook, Instagram, Twitter, ArrowUp, ChefHat } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 import { motion } from "framer-motion";
 import { BUSINESS, DEVELOPER } from "@/lib/contact";
-
-interface Settings {
-  restaurant_name: string;
-  contact_phone: string;
-  contact_email: string;
-  address: string;
-  opening_hours_weekday: string;
-  opening_hours_weekend: string;
-  facebook_url: string | null;
-  instagram_url: string | null;
-  twitter_url: string | null;
-}
+import { useSiteSettings } from "@/hooks/useSiteSettings";
 
 const Footer = () => {
-  const [settings, setSettings] = useState<Settings | null>(null);
-
-  useEffect(() => {
-    supabase.from("website_settings").select("*").limit(1).single()
-      .then(({ data }) => { if (data) setSettings(data as unknown as Settings); });
-  }, []);
+  const { settings } = useSiteSettings();
 
   const scrollToTop = () => window.scrollTo({ top: 0, behavior: "smooth" });
 

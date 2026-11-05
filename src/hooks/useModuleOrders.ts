@@ -137,15 +137,21 @@ export function useMyOrders(
     setLoading(true);
 
     const load = async () => {
-      // Build query conditionally — avoids fragile intermediate reassignment casts
-      const base = supabase.from("module_orders" as any).select("*");
-      const filtered = orderToken
-        ? (base as any).eq("order_token", orderToken)
-        : (base as any).eq("buyer_email", email);
-      const { data } = await (filtered as any).order("submitted_at", { ascending: false });
+      let rows: ModuleOrderRow[] = [];
+      if (orderToken) {
+        const { data } = await (supabase as any).rpc("get_module_order_by_token", { p_order_token: orderToken });
+        const row = Array.isArray(data) ? data[0] : data;
+        if (row) rows = [row as ModuleOrderRow];
+      } else {
+        const { data } = await (supabase as any)
+          .from("module_orders")
+          .select("*")
+          .eq("buyer_email", email.trim().toLowerCase())
+          .order("submitted_at", { ascending: false });
+        rows = (data as ModuleOrderRow[] | null) ?? [];
+      }
 
       if (!active) return;
-      const rows = (data as unknown as ModuleOrderRow[]) ?? [];
       setOrders(rows.map(mapOrder));
       setLoading(false);
     };
@@ -159,14 +165,9 @@ export function useMyOrders(
 
 // ─── Standalone DB functions ──────────────────────────────────────────────────
 
-// Admin RPC secret — read from env var (set on Vercel), fallback for local dev
-const ADMIN_RPC_SECRET =
-  (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_ADMIN_RPC_SECRET) ||
-  "Ashu@1107";
-
 export async function approveOrder(id: string): Promise<void> {
   const { error } = await (supabase as any).rpc("update_order_status", {
-    p_secret: ADMIN_RPC_SECRET,
+    p_secret: "",
     p_order_id: id,
     p_status: "approved",
   });
@@ -175,7 +176,7 @@ export async function approveOrder(id: string): Promise<void> {
 
 export async function rejectOrder(id: string): Promise<void> {
   const { error } = await (supabase as any).rpc("update_order_status", {
-    p_secret: ADMIN_RPC_SECRET,
+    p_secret: "",
     p_order_id: id,
     p_status: "rejected",
   });
@@ -185,25 +186,14 @@ export async function rejectOrder(id: string): Promise<void> {
 export async function insertModuleOrder(
   data: ModuleOrderInsert
 ): Promise<{ orderToken: string } | null> {
-  const { data: inserted, error } = await supabase
-    .from("module_orders" as any)
-    .insert({
-      module_key: data.moduleKey,
-      module_name: data.moduleName,
-      plan_type: data.planType,
-      amount: data.amount,
-      buyer_name: data.buyerName,
-      buyer_email: data.buyerEmail,
-      buyer_phone: data.buyerPhone,
-      txn_id: data.txnId,
-      screenshot_data_url: data.screenshotDataUrl,
-      status: "pending",
-    })
-    .select("order_token");
-
-  if (error || !inserted) return null;
-
-  const rows = inserted as unknown as { order_token: string }[];
-  const token = rows[0]?.order_token;
-  return token ? { orderToken: token } : null;
+  const { data: token, error } = await (supabase as any).rpc("submit_module_order", {
+    p_module_key: data.moduleKey,
+    p_plan_type: data.planType,
+    p_buyer_name: data.buyerName,
+    p_buyer_email: data.buyerEmail,
+    p_buyer_phone: data.buyerPhone,
+    p_txn_id: data.txnId,
+    p_screenshot_data_url: data.screenshotDataUrl,
+  });
+  return !error && token ? { orderToken: token as string } : null;
 }

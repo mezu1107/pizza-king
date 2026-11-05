@@ -154,70 +154,43 @@ export default function POSTerminal() {
     }
     setSaving(true);
     try {
-      const payload = {
-        user_id: user.id,
-        total,
-        subtotal,
-        discount_amount: discountVal,
-        delivery_charges: deliveryVal,
-        points_earned: 0,
-        points_redeemed: 0,
-        status: orderType === "delivery" ? "pending" : "delivered",
-        source: "pos",
-        payment_method: paymentMethod,
-        amount_paid: paidVal || total,
-        order_type: orderType,
-        table_no: tableNo.trim() || null,
-        notes: notes.trim() || null,
-        customer_name: customerName.trim() || "Walk-in Customer",
-        customer_phone: customerPhone.trim() || null,
-        customer_email: null,
-        customer_address: customerAddress.trim() || null,
-      };
-      const { data: order, error } = await supabase
-        .from("orders")
-        .insert(payload as never)
-        .select()
-        .single();
+      const { data, error } = await (supabase as any).rpc("place_pos_order", {
+        p_items: lines.map(({ id, quantity }) => ({ id, quantity })),
+        p_order_type: orderType,
+        p_payment_method: paymentMethod,
+        p_customer_name: customerName.trim(),
+        p_customer_phone: customerPhone.trim(),
+        p_customer_address: customerAddress.trim(),
+        p_table_no: tableNo.trim(),
+        p_discount_amount: discountVal,
+        p_delivery_charges: deliveryVal,
+        p_amount_paid: paidVal,
+        p_notes: notes.trim(),
+      });
       if (error) throw error;
-
-      const orderId = (order as unknown as { id: string }).id;
-      const { error: itemsError } = await supabase.from("order_items").insert(
-        lines.map((l) => ({
-          order_id: orderId,
-          food_id: l.id,
-          title: l.title,
-          quantity: l.quantity,
-          price: l.price,
-        })) as never
-      );
-      if (itemsError) throw itemsError;
-
-      // Decrement stock where tracked
-      await Promise.all(
-        lines.map(async (l) => {
-          const f = foods.find((x) => x.id === l.id);
-          if (f && f.stock != null) {
-            const next = Math.max(0, f.stock - l.quantity);
-            await supabase.from("foods").update({ stock: next } as never).eq("id", l.id);
-            setFoods((prev) => prev.map((x) => (x.id === l.id ? { ...x, stock: next } : x)));
-          }
-        })
-      );
+      const result = data as { order?: ReceiptOrder; items?: ReceiptItem[] } | null;
+      if (!result?.order || !Array.isArray(result.items)) throw new Error("Order could not be confirmed");
+      const savedOrder = result.order;
+      const savedItems = result.items;
+      const savedTotal = Number(savedOrder.total);
+      setFoods((prev) => prev.map((food) => {
+        const sold = lines.find((line) => line.id === food.id)?.quantity ?? 0;
+        return food.stock == null || sold === 0 ? food : { ...food, stock: Math.max(0, food.stock - sold) };
+      }));
 
       if (orderType === "delivery") {
         sendPush({
           scope: "admin",
           title: "🧾 New POS delivery order",
-          body: `${payload.customer_name} • ${money(total)}`,
+          body: `${savedOrder.customer_name || "Walk-in Customer"} • ${money(savedTotal)}`,
           url: "/pos/orders",
         });
       }
 
-      const receipt = { order: order as unknown as ReceiptOrder, items: lines as ReceiptItem[] };
+      const receipt = { order: savedOrder, items: savedItems };
       setLastOrder(receipt);
       printReceipt(receipt.order, receipt.items);
-      toast({ title: "Sale completed ✅", description: `${money(total)} • ${paymentMethod.toUpperCase()}` });
+      toast({ title: "Sale completed ✅", description: `${money(savedTotal)} • ${paymentMethod.toUpperCase()}` });
       resetSale();
     } catch (e) {
       toast({

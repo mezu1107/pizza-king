@@ -124,9 +124,6 @@ export interface ActivePlan {
   customModules?: string[] | null;
 }
 
-const STORAGE_KEY = "pizza_king_modules";
-const ACTIVE_PACKAGES_KEY = "pizza_king_active_packages";
-
 interface SubscriptionContextType {
   modules: ModuleDefinition[];
   unlockedModules: string[];
@@ -150,33 +147,9 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
 
-  // 1. Unlocked modules from localStorage as initial seed
-  const [unlockedModules, setUnlockedModules] = useState<string[]>(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      return stored ? (JSON.parse(stored) as string[]) : [];
-    } catch {
-      return [];
-    }
-  });
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(unlockedModules));
-  }, [unlockedModules]);
-
-  // 2. Active plans
-  const [activePlans, setActivePlans] = useState<ActivePlan[]>(() => {
-    try {
-      const stored = localStorage.getItem(ACTIVE_PACKAGES_KEY);
-      return stored ? (JSON.parse(stored) as ActivePlan[]) : [];
-    } catch {
-      return [];
-    }
-  });
-
-  useEffect(() => {
-    localStorage.setItem(ACTIVE_PACKAGES_KEY, JSON.stringify(activePlans));
-  }, [activePlans]);
+  // Paid access is hydrated only from records permitted by the verified-email RLS policy.
+  const [unlockedModules, setUnlockedModules] = useState<string[]>([]);
+  const [activePlans, setActivePlans] = useState<ActivePlan[]>([]);
 
   const unlockModule = (key: string) => {
     setUnlockedModules((prev) => (prev.includes(key) ? prev : [...prev, key]));
@@ -216,17 +189,17 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
 
   // ── Database Sync: Automatically fetch subscriptions for the logged-in user/rider ──
   const syncFromDB = useCallback(async () => {
-    const emailCandidate =
-      user?.email ||
-      localStorage.getItem("pizza_king_buyer_email") ||
-      sessionStorage.getItem("buyer_email");
-
-    if (!emailCandidate) {
+    if (!user?.email) {
+      setUnlockedModules([]);
+      setActivePlans([]);
       setLoading(false);
       return;
     }
 
-    const cleanEmail = emailCandidate.trim().toLowerCase();
+    const cleanEmail = user.email.trim().toLowerCase();
+    setUnlockedModules([]);
+    setActivePlans([]);
+    setLoading(true);
 
     try {
       // Query package_orders for any orders matching this buyer email
@@ -236,7 +209,7 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
         .select(
           "id, plan_key, package_name, category, billing_type, status, subscription_start, subscription_end, custom_modules"
         )
-        .ilike("buyer_email", cleanEmail)
+        .eq("buyer_email", cleanEmail)
         .order("created_at", { ascending: false });
 
       if (!error && Array.isArray(data)) {
@@ -276,32 +249,20 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
           setUnlockedModules(Array.from(newUnlocked));
           setActivePlans(newActivePlans);
         } else {
-          // If all orders for this user are explicitly blocked, cancelled, or rejected:
-          const isExplicitlyRevoked = rows.some(
-            (o) =>
-              o.status === "cancelled" ||
-              o.status === "blocked" ||
-              o.status === "rejected" ||
-              o.status === "expired"
-          );
-
-          if (isExplicitlyRevoked) {
-            // Revoke their category modules
-            const riderOrders = rows.filter((r) => r.category === "rider");
-            if (riderOrders.length > 0) {
-              // Lock all rider modules
-              setUnlockedModules((prev) => prev.filter((k) => !k.startsWith("/rider")));
-              setActivePlans((prev) => prev.filter((p) => p.category !== "rider"));
-            }
-          }
+          setUnlockedModules([]);
+          setActivePlans([]);
         }
+      } else {
+        // Fail closed if the session cannot verify the account's purchases.
+        setUnlockedModules([]);
+        setActivePlans([]);
       }
     } catch (err) {
       console.warn("Subscription DB sync error:", err);
     } finally {
       setLoading(false);
     }
-  }, [user?.email]);
+  }, [user?.email, user?.id]);
 
   // Sync on mount or when user changes
   useEffect(() => {

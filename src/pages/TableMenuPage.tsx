@@ -12,6 +12,7 @@ import { Minus, Plus, ShoppingBag, CheckCircle2, Clock, ChefHat, Bell, UtensilsC
 
 interface Item { id: string; title: string; price: number; image_url: string; description: string | null; category: string }
 interface Track { id: string; table_no: number; table_name: string; customer_name: string; items: { title: string; quantity: number; price: number }[]; total: number; status: string; created_at: string }
+interface TrackedOrder extends Track { tracking_token: string }
 
 const STEPS = [
   { key: "pending", label: "Received", icon: Clock },
@@ -34,7 +35,7 @@ export default function TableMenuPage() {
   const [notes, setNotes] = useState("");
   const [placing, setPlacing] = useState(false);
   const [checkout, setCheckout] = useState(false);
-  const [orderIds, setOrderIds] = useState<string[]>(() => JSON.parse(localStorage.getItem(storeKey) || "[]"));
+  const [orderTokens, setOrderTokens] = useState<string[]>(() => JSON.parse(localStorage.getItem(storeKey) || "[]"));
   const [tracks, setTracks] = useState<Track[]>([]);
 
   useEffect(() => {
@@ -53,15 +54,15 @@ export default function TableMenuPage() {
   }, [code]);
 
   useEffect(() => {
-    if (!orderIds.length) return;
+    if (!orderTokens.length) return;
     const fetchAll = async () => {
-      const res = await Promise.all(orderIds.map((id) => supabase.rpc("get_dine_in_order", { _id: id })));
-      setTracks(res.map((r) => r.data?.[0]).filter(Boolean) as unknown as Track[]);
+      const res = await Promise.all(orderTokens.map((token) => (supabase as any).rpc("get_dine_in_order_by_token", { _tracking_token: token })));
+      setTracks(res.map((r) => Array.isArray(r.data) ? r.data[0] : r.data).filter(Boolean) as Track[]);
     };
     fetchAll();
     const t = setInterval(fetchAll, 8000);
     return () => clearInterval(t);
-  }, [orderIds]);
+  }, [orderTokens]);
 
   const cats = useMemo(() => ["All", ...Array.from(new Set(items.map((i) => i.category)))], [items]);
   const shown = cat === "All" ? items : items.filter((i) => i.category === cat);
@@ -73,12 +74,14 @@ export default function TableMenuPage() {
     if (!name.trim()) return toast({ title: "Please enter your name", variant: "destructive" });
     setPlacing(true);
     const payload = Object.entries(cart).filter(([, q]) => q > 0).map(([id, quantity]) => ({ id, quantity }));
-    const { data, error } = await supabase.rpc("place_dine_in_order", { _code: code, _name: name, _phone: phone, _notes: notes, _items: payload });
+    const { data, error } = await (supabase as any).rpc("place_dine_in_order_with_token", { _code: code, _name: name, _phone: phone, _notes: notes, _items: payload });
     setPlacing(false);
     if (error) return toast({ title: "Order failed", description: error.message, variant: "destructive" });
-    const ids = [data as string, ...orderIds];
-    localStorage.setItem(storeKey, JSON.stringify(ids));
-    setOrderIds(ids); setCart({}); setNotes(""); setCheckout(false);
+    const placed = (Array.isArray(data) ? data[0] : data) as { id: string; tracking_token: string } | null;
+    if (!placed?.tracking_token) return toast({ title: "Order status unavailable", description: "Please ask staff to check your order.", variant: "destructive" });
+    const tokens = [placed.tracking_token, ...orderTokens];
+    localStorage.setItem(storeKey, JSON.stringify(tokens));
+    setOrderTokens(tokens); setCart({}); setNotes(""); setCheckout(false);
     toast({ title: "Order placed", description: "You can track it below" });
     window.scrollTo({ top: 0, behavior: "smooth" });
   };

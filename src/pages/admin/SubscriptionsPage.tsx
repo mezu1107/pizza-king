@@ -1,6 +1,8 @@
 import { useState, useMemo, useEffect } from "react";
 import AdminLayout from "@/components/admin/AdminLayout";
 import { useSubscription, MODULES, PLAN_MODULES } from "@/contexts/SubscriptionContext";
+import { useAdminCheck } from "@/hooks/useAdminCheck";
+import { useAuth } from "@/contexts/AuthContext";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -51,82 +53,7 @@ import {
   grantSubscription,
   type PackageOrder,
 } from "@/hooks/usePackageOrders";
-
-const AUTH_KEY = "sub_auth";
-
-// Env-var admin credentials (with safe local-dev fallbacks).
-const ADMIN_EMAIL =
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_SUB_ADMIN_EMAIL) ||
-  "amenterprises1105@gmail.com";
-const ADMIN_PASSWORD =
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_SUB_ADMIN_PASSWORD) ||
-  "Ashu@1107";
-
-// ─── Login form (env-var gate) ────────────────────────────────────────────────
-
-function LoginForm({ onLogin }: { onLogin: () => void }) {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (email === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
-      sessionStorage.setItem(AUTH_KEY, "true");
-      onLogin();
-    } else {
-      setError("Invalid credentials");
-    }
-  };
-
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-sm">
-        <CardHeader className="space-y-2 text-center">
-          <div className="flex justify-center">
-            <Crown className="w-10 h-10 text-yellow-500" />
-          </div>
-          <CardTitle className="text-xl">Pricing & Plans Management</CardTitle>
-          <p className="text-sm text-muted-foreground">Sign in to manage plan subscriptions</p>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-1">
-              <Label htmlFor="sub-email">Email</Label>
-              <Input
-                id="sub-email"
-                type="email"
-                autoComplete="email"
-                value={email}
-                onChange={(e) => { setEmail(e.target.value); setError(""); }}
-                required
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="sub-password">Password</Label>
-              <Input
-                id="sub-password"
-                type="password"
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => { setPassword(e.target.value); setError(""); }}
-                required
-              />
-            </div>
-            {error && (
-              <p className="text-sm text-red-500 font-medium">{error}</p>
-            )}
-            <Button type="submit" className="w-full bg-orange-500 hover:bg-orange-600 text-white">
-              Login
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
+import { downloadCsv } from "@/lib/receipt";
 
 // ─── Shared helpers ──────────────────────────────────────────────────────────
 
@@ -1695,7 +1622,7 @@ function PurchaseHistoryTab({
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
-function SubscriptionDashboard({ onLogout }: { onLogout: () => void }) {
+function SubscriptionDashboard({ signOut }: { signOut: () => Promise<void> }) {
   // Single shared orders hook so both request + history tabs poll together.
   const { orders, loading: ordersLoading, refresh } = usePackageOrders();
   const pendingCount = orders.filter((o) => o.status === "pending").length;
@@ -1709,7 +1636,7 @@ function SubscriptionDashboard({ onLogout }: { onLogout: () => void }) {
             <Crown className="w-6 h-6 text-yellow-500" />
             <h1 className="text-2xl font-bold">Pricing & Plans</h1>
           </div>
-          <Button variant="outline" size="sm" onClick={onLogout} className="gap-2">
+          <Button variant="outline" size="sm" onClick={() => { void signOut(); }} className="gap-2">
             <LogOut className="w-4 h-4" />
             Logout
           </Button>
@@ -1751,18 +1678,10 @@ function SubscriptionDashboard({ onLogout }: { onLogout: () => void }) {
 // ─── Page wrapper with auth gate ──────────────────────────────────────────────
 
 export default function SubscriptionsPage() {
-  const [authed, setAuthed] = useState(
-    () => sessionStorage.getItem(AUTH_KEY) === "true"
-  );
-
-  const handleLogout = () => {
-    sessionStorage.removeItem(AUTH_KEY);
-    setAuthed(false);
-  };
-
-  if (!authed) {
-    return <LoginForm onLogin={() => setAuthed(true)} />;
-  }
-
-  return <SubscriptionDashboard onLogout={handleLogout} />;
+  const { isAdmin, loading } = useAdminCheck();
+  const { user, signOut } = useAuth();
+  if (loading) return <div className="min-h-screen flex items-center justify-center text-muted-foreground">Loading administrator access…</div>;
+  if (!user) return <div className="min-h-screen flex items-center justify-center text-muted-foreground">Please sign in with your administrator account to manage plans.</div>;
+  if (!isAdmin) return <AdminLayout title="Pricing & Plans"><p className="text-muted-foreground">Administrator access is required to manage plans.</p></AdminLayout>;
+  return <SubscriptionDashboard signOut={signOut} />;
 }

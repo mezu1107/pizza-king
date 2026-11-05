@@ -26,11 +26,7 @@ export function useSiteSettings() {
   useEffect(() => {
     let active = true;
     const load = async () => {
-      const { data } = await supabase
-        .from("website_settings" as any)
-        .select("*")
-        .limit(1)
-        .maybeSingle();
+      const { data } = await (supabase as any).rpc("get_public_website_settings");
       if (!active) return;
       setSettings((data as unknown as SiteSettings) ?? null);
       setLoading(false);
@@ -42,7 +38,11 @@ export function useSiteSettings() {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "website_settings" },
-        (payload) => setSettings(payload.new as unknown as SiteSettings),
+        () => {
+          (supabase as any).rpc("get_public_website_settings").then(({ data }: { data: SiteSettings | null }) => {
+            if (active) setSettings(data);
+          });
+        },
       )
       .subscribe();
 

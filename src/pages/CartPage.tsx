@@ -148,42 +148,29 @@ const CartPage = () => {
         console.warn("Profile update skipped:", profErr);
       }
 
-      const orderPayload: any = {
-        user_id: user.id,
-        total: grandTotal,
-        subtotal,
-        status: "pending",
-        customer_name: customerName.trim(),
-        customer_phone: phone.trim(),
-        customer_email: user.email || "",
-        customer_address: address.trim(),
-        coupon_code: coupon?.coupon.code ?? null,
-        discount_amount: couponDiscount + loyaltyDiscount,
-        delivery_charges: deliveryCharges,
-        points_earned: willEarn,
-        points_redeemed: redeemPts,
-      };
+      const { data: placedOrderId, error: placeError } = await (supabase as any).rpc("place_customer_order", {
+        p_items: items.map((item) => ({ id: item.id, quantity: item.quantity })),
+        p_customer_name: customerName.trim(),
+        p_customer_phone: phone.trim(),
+        p_customer_address: address.trim(),
+        p_delivery_lat: coords?.lat ?? null,
+        p_delivery_lng: coords?.lng ?? null,
+        p_coupon_code: coupon?.coupon.code ?? null,
+        p_points_redeemed: redeemPts,
+      });
+      if (placeError || !placedOrderId) throw placeError || new Error("Order could not be completed.");
 
-      if (coords?.lat && coords?.lng) {
-        orderPayload.delivery_lat = coords.lat;
-        orderPayload.delivery_lng = coords.lng;
-      }
+      const { data: order, error: orderReadError } = await supabase
+        .from("orders")
+        .select("*")
+        .eq("id", placedOrderId)
+        .single();
+      if (orderReadError || !order) throw orderReadError || new Error("Order was placed, but its receipt could not be loaded.");
 
-      let orderRes = await supabase.from("orders").insert(orderPayload).select().single();
-      // If delivery_lat/lng column is not yet present in DB schema, retry without it
-      if (orderRes.error && (orderRes.error.message.includes("delivery_lat") || orderRes.error.message.includes("column"))) {
-        delete orderPayload.delivery_lat;
-        delete orderPayload.delivery_lng;
-        orderRes = await supabase.from("orders").insert(orderPayload).select().single();
-      }
-
-      if (orderRes.error) throw orderRes.error;
-      const order = orderRes.data;
-
-      const orderItems = items.map((item) => ({
-        order_id: (order as any).id, food_id: item.id, title: item.title, quantity: item.quantity, price: item.price,
-      }));
-      const { error: itemsError } = await supabase.from("order_items").insert(orderItems as any);
+      const { data: orderItems, error: itemsError } = await supabase
+        .from("order_items")
+        .select("*")
+        .eq("order_id", placedOrderId);
       if (itemsError) throw itemsError;
 
       // Notify admins
@@ -197,7 +184,7 @@ const CartPage = () => {
       window.open(`https://wa.me/923173712950?text=${generateWhatsAppMessage()}`, "_blank");
       clearCart();
       toast({ title: "Order Placed Successfully! 🎉" });
-      navigate("/order-success");
+      navigate("/order-success", { state: { orderId: placedOrderId } });
     } catch (err: any) {
       toast({ title: "Order Failed", description: err.message, variant: "destructive" });
     }

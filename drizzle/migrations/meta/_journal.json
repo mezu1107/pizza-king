@@ -15,6 +15,27 @@
       "when": 1793899418535,
       "tag": "0001_tighten_selected_security_findings",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793900650036,
+      "tag": "0002_tighten_selected_order_and_tracking_rpc",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1793901585520,
+      "tag": "0003_add_secure_pos_order_rpc",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793901695657,
+      "tag": "0004_secure_package_order_deletion",
+      "breakpoints": true
     }
   ]
 }

@@ -238,6 +238,7 @@ export type Database = {
           table_name: string
           table_no: number
           total: number
+          tracking_token: string
           updated_at: string
         }
         Insert: {
@@ -253,6 +254,7 @@ export type Database = {
           table_name?: string
           table_no: number
           total?: number
+          tracking_token?: string
           updated_at?: string
         }
         Update: {
@@ -268,6 +270,7 @@ export type Database = {
           table_name?: string
           table_no?: number
           total?: number
+          tracking_token?: string
           updated_at?: string
         }
         Relationships: [
@@ -1464,6 +1467,20 @@ export type Database = {
           updated_at: string
         }[]
       }
+      get_dine_in_order_by_token: {
+        Args: { _tracking_token: string }
+        Returns: {
+          created_at: string
+          customer_name: string
+          id: string
+          items: Json
+          status: string
+          table_name: string
+          table_no: number
+          total: number
+          updated_at: string
+        }[]
+      }
       get_module_order_by_token: {
         Args: { p_order_token: string }
         Returns: {
@@ -1533,6 +1550,24 @@ export type Database = {
           table_no: number
         }[]
       }
+      grant_package_order: {
+        Args: {
+          p_admin_remarks: string
+          p_amount: number
+          p_billing_type: string
+          p_buyer_email: string
+          p_buyer_name: string
+          p_buyer_phone: string
+          p_category: string
+          p_custom_modules: string[]
+          p_package_name: string
+          p_plan_key: string
+          p_status: string
+          p_subscription_end: string
+          p_subscription_start: string
+        }
+        Returns: string
+      }
       has_role:
         | {
             Args: {
@@ -1565,6 +1600,42 @@ export type Database = {
           _phone: string
         }
         Returns: string
+      }
+      place_dine_in_order_with_token: {
+        Args: {
+          _code: string
+          _items: Json
+          _name: string
+          _notes: string
+          _phone: string
+        }
+        Returns: Json
+      }
+      place_pos_order: {
+        Args: {
+          p_amount_paid: number
+          p_customer_address: string
+          p_customer_name: string
+          p_customer_phone: string
+          p_delivery_charges: number
+          p_discount_amount: number
+          p_items: Json
+          p_notes: string
+          p_order_type: string
+          p_payment_method: string
+          p_table_no: string
+        }
+        Returns: Json
+      }
+      place_staff_dine_in_order: {
+        Args: {
+          _items: Json
+          _name: string
+          _notes: string
+          _phone: string
+          _table_id: string
+        }
+        Returns: Json
       }
       record_rider_gps: {
         Args: {

@@ -6,7 +6,6 @@ import {
   Upload,
   ShoppingCart,
   ArrowLeft,
-  AlertTriangle,
   Loader2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,7 +17,6 @@ import { Separator } from "@/components/ui/separator";
 import { usePackages } from "@/hooks/usePackages";
 import { insertPackageOrder } from "@/hooks/usePackageOrders";
 import { MODULES } from "@/contexts/SubscriptionContext";
-import { supabase } from "@/integrations/supabase/client";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -33,7 +31,6 @@ interface CartItem {
 const ORDERS_KEY = "pizza_king_orders";
 const CART_SESSION_KEY = "feature_store_cart";
 
-const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
@@ -72,8 +69,6 @@ export default function CheckoutPage() {
   const [submitted, setSubmitted] = useState(false);
   const [orderToken, setOrderToken] = useState<string | null>(null);
   const [paidAmount, setPaidAmount] = useState(0);
-  const [duplicateWarn, setDuplicateWarn] = useState(false);
-  const [duplicateChecking, setDuplicateChecking] = useState(false);
 
   // Redirect to the store when there is no cart (and not on the success screen).
   useEffect(() => {
@@ -118,35 +113,7 @@ export default function CheckoutPage() {
     );
   }, [selectedPackage]);
 
-  // Best-effort duplicate check: an existing package_orders row for the same
-  // plan_key + buyer_email with status pending/active. Warn only — never block.
-  useEffect(() => {
-    const email = form.buyerEmail.trim();
-    const planKey = cart?.planKey;
-    if (!planKey || !email || !EMAIL_RE.test(email)) {
-      setDuplicateWarn(false);
-      setDuplicateChecking(false);
-      return;
-    }
-    let active = true;
-    setDuplicateChecking(true);
-    const timer = setTimeout(async () => {
-      const { data } = await supabase
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .from("package_orders" as any)
-        .select("id")
-        .eq("plan_key", planKey)
-        .eq("buyer_email", email)
-        .in("status", ["pending", "active"]);
-      if (!active) return;
-      setDuplicateWarn(Array.isArray(data) && data.length > 0);
-      setDuplicateChecking(false);
-    }, 500);
-    return () => {
-      active = false;
-      clearTimeout(timer);
-    };
-  }, [form.buyerEmail, cart?.planKey]);
+  // Purchase records are deliberately private; duplicate-order lookup is not exposed to buyers.
 
   const handleFieldChange = (field: keyof typeof form, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -505,17 +472,6 @@ export default function CheckoutPage() {
                   />
                 </div>
 
-                {/* Duplicate-order warning (non-blocking) */}
-                {duplicateWarn && (
-                  <div className="flex items-start gap-2 rounded-lg border border-yellow-300 bg-yellow-50 p-3 text-sm text-yellow-800">
-                    <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-                    <span>
-                      You may already have a pending or active order for this plan with this
-                      email. You can still submit — our team will review and avoid duplicates.
-                    </span>
-                  </div>
-                )}
-
                 {formError && (
                   <p className="text-sm text-red-500 font-medium">{formError}</p>
                 )}
@@ -537,12 +493,6 @@ export default function CheckoutPage() {
                     </>
                   )}
                 </Button>
-
-                {duplicateChecking && (
-                  <p className="text-xs text-muted-foreground text-center">
-                    Checking for existing orders…
-                  </p>
-                )}
 
                 <p className="text-xs text-muted-foreground text-center">
                   Our team will verify your payment within 24 hours and unlock your plan.

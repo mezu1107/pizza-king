@@ -103,8 +103,21 @@ export default function AdminDineIn() {
   const printAll = (list: TableRow[]) => {
     const w = window.open("", "_blank");
     if (!w) return;
-    w.document.write(`<html><head><title>Table QR codes</title><style>body{font-family:sans-serif;display:flex;flex-wrap:wrap;gap:16px;padding:16px}.c{width:220px;border:2px dashed #999;border-radius:12px;padding:12px;text-align:center;page-break-inside:avoid}img{width:190px}h2{margin:4px 0}p{margin:2px;font-size:12px}</style></head><body>${list.map((t) => `<div class="c"><h2>${t.name}</h2><img src="${qrs[t.id]}"/><p>Scan to order</p><p>Code: ${t.code}</p><p>Pizza King</p></div>`).join("")}<script>setTimeout(()=>print(),400)</script></body></html>`);
-    w.document.close();
+    const doc = w.document;
+    doc.open();
+    doc.write("<!doctype html><html><head><title>Table QR codes</title><style>body{font-family:sans-serif;display:flex;flex-wrap:wrap;gap:16px;padding:16px}.c{width:220px;border:2px dashed #999;border-radius:12px;padding:12px;text-align:center;page-break-inside:avoid}img{width:190px}h2{margin:4px 0}p{margin:2px;font-size:12px}</style></head><body></body></html>");
+    doc.close();
+    for (const table of list) {
+      const card = doc.createElement("div"); card.className = "c";
+      const heading = doc.createElement("h2"); heading.textContent = table.name;
+      const image = doc.createElement("img"); image.alt = `QR code for ${table.name}`; image.src = qrs[table.id] || "";
+      const scan = doc.createElement("p"); scan.textContent = "Scan to order";
+      const code = doc.createElement("p"); code.textContent = `Code: ${table.code || ""}`;
+      const brand = doc.createElement("p"); brand.textContent = "Pizza King";
+      card.append(heading, image, scan, code, brand);
+      doc.body.appendChild(card);
+    }
+    w.setTimeout(() => { w.focus(); w.print(); }, 400);
   };
 
   const setStatus = async (o: DineOrder, status: string) => {
@@ -120,9 +133,12 @@ export default function AdminDineIn() {
     });
     if (!items.length) return toast({ title: "Add at least one item", variant: "destructive" });
     const total = items.reduce((s, i) => s + i.price * i.quantity, 0);
-    const { error } = await supabase.from("dine_in_orders").insert({
-      table_id: placeFor.id, table_no: placeFor.table_no, table_name: placeFor.name,
-      customer_name: custName.trim() || "Walk in guest", items, total, placed_by: "staff", status: "accepted",
+    const { error } = await (supabase as any).rpc("place_staff_dine_in_order", {
+      _table_id: placeFor.id,
+      _name: custName.trim() || "Walk in guest",
+      _phone: "",
+      _notes: "",
+      _items: items.map(({ id, quantity }) => ({ id, quantity })),
     });
     if (error) return toast({ title: "Order failed", description: error.message, variant: "destructive" });
     toast({ title: `Order placed for ${placeFor.name}` });
