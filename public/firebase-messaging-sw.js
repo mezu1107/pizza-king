@@ -2,7 +2,8 @@
 importScripts("https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js");
 importScripts("https://www.gstatic.com/firebasejs/10.13.0/firebase-messaging-compat.js");
 
-firebase.initializeApp({
+const qp = Object.fromEntries(new URL(self.location).searchParams);
+firebase.initializeApp(qp.apiKey ? qp : {
   apiKey: "AIzaSyBU-9-DFUYVd68wJaPr0sbMuU5yM1gL4AM",
   authDomain: "young-malang.firebaseapp.com",
   projectId: "young-malang",
@@ -22,8 +23,10 @@ messaging.onBackgroundMessage((payload) => {
     icon: "/icons/icon-192.png",
     badge: "/icons/icon-192.png",
     data: { url },
-    tag: payload?.data?.tag || "youngmalang",
-    requireInteraction: false,
+    tag: payload?.data?.tag || `n-${Date.now()}`,
+    renotify: true,
+    requireInteraction: true,
+    vibrate: [200, 100, 200, 100, 200],
   });
 });
 

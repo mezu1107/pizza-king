@@ -50,6 +50,13 @@
       "when": 1793902703974,
       "tag": "0006_bind_subscription_entitlements_to_verified_user",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793903850259,
+      "tag": "0007_enable_realtime_orders",
+      "breakpoints": true
     }
   ]
 }

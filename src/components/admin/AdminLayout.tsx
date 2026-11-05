@@ -6,6 +6,7 @@ import { useAdminCheck } from "@/hooks/useAdminCheck";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePushRegistration } from "@/hooks/usePushRegistration";
 import { usePWAManifest } from "@/hooks/usePWAInstall";
+import { useStaffOrderAlerts } from "@/hooks/useStaffOrderAlerts";
 
 interface AdminLayoutProps {
   children: ReactNode;
@@ -16,6 +17,7 @@ export default function AdminLayout({ children, title }: AdminLayoutProps) {
   const { isAdmin, loading, user } = useAdminCheck();
   usePushRegistration("admin");
   usePWAManifest("/manifest-admin.json");
+  useStaffOrderAlerts(isAdmin);
 
   if (loading) {
     return (

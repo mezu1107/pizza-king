@@ -2,16 +2,19 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getMessaging, getToken, onMessage, isSupported, type Messaging } from "firebase/messaging";
 
+const env = import.meta.env;
+const projectId = env.VITE_FIREBASE_PROJECT_ID || "young-malang";
+const appId = env.VITE_FIREBASE_APP_ID || "1:443616002616:web:3490d55a1a09801a371ccd";
 export const firebaseConfig = {
-  apiKey: "AIzaSyBU-9-DFUYVd68wJaPr0sbMuU5yM1gL4AM",
-  authDomain: "young-malang.firebaseapp.com",
-  projectId: "young-malang",
-  storageBucket: "young-malang.firebasestorage.app",
-  messagingSenderId: "443616002616",
-  appId: "1:443616002616:web:3490d55a1a09801a371ccd",
+  apiKey: env.VITE_FIREBASE_API_KEY || "AIzaSyBU-9-DFUYVd68wJaPr0sbMuU5yM1gL4AM",
+  authDomain: `${projectId}.firebaseapp.com`,
+  projectId,
+  storageBucket: `${projectId}.firebasestorage.app`,
+  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || appId.split(":")[1],
+  appId,
 };
 
-export const VAPID_KEY =
+export const VAPID_KEY: string = env.VITE_FIREBASE_VAPID_KEY ||
   "BBScrS86R00H1BxK-FAYISt7-8YHDc5frut4E4dA9dOSHuxTyeo7DYUkRrTlSPzuUO7XoUO6LKCfJrX30M1TX6Q";
 
 export const firebaseApp = getApps().length ? getApp() : initializeApp(firebaseConfig);
@@ -43,7 +46,9 @@ export async function requestPushToken(): Promise<string | null> {
     const perm = Notification.permission === "default" ? await Notification.requestPermission() : Notification.permission;
     if (perm !== "granted") return null;
 
-    const reg = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
+    const reg = await navigator.serviceWorker.register(
+      `/firebase-messaging-sw.js?${new URLSearchParams(firebaseConfig as Record<string, string>).toString()}`,
+    );
     const token = await getToken(messaging, {
       vapidKey: VAPID_KEY,
       serviceWorkerRegistration: reg,

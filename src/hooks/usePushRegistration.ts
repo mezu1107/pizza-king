@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { requestPushToken, onForegroundMessage } from "@/lib/firebase";
 import { toast } from "sonner";
+import { playNotificationSound } from "@/lib/sound";
 
 /**
  * Registers the device's FCM token with the user's account.
@@ -36,6 +37,7 @@ export function usePushRegistration(scope: "customer" | "admin" | "rider" = "cus
       const off = await onForegroundMessage((payload) => {
         const title = payload?.notification?.title || payload?.data?.title || "Notification";
         const body = payload?.notification?.body || payload?.data?.body || "";
+        playNotificationSound();
         toast(title, { description: body });
       });
       if (typeof off === "function") unsub = off;

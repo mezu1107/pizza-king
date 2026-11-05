@@ -70,33 +70,41 @@ Deno.serve(async (req) => {
   try {
     // --- AUTH: require admin caller ---
     const authHeader = req.headers.get("Authorization") || "";
-    if (!authHeader.startsWith("Bearer ")) return unauthorized();
-    const callerClient = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_ANON_KEY")!,
-      { global: { headers: { Authorization: authHeader } } },
-    );
-    const { data: userData, error: userErr } = await callerClient.auth.getUser();
-    if (userErr || !userData?.user) return unauthorized();
-
     const supa = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
-    const { data: roleRow } = await supa
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", userData.user.id)
-      .eq("role", "admin")
-      .maybeSingle();
-    if (!roleRow) return unauthorized("Admin role required");
+    let isAdmin = false;
+    if (authHeader.startsWith("Bearer ")) {
+      const callerClient = createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_ANON_KEY")!,
+        { global: { headers: { Authorization: authHeader } } },
+      );
+      const { data: userData } = await callerClient.auth.getUser();
+      if (userData?.user) {
+        const { data: roleRow } = await supa
+          .from("user_roles").select("role")
+          .eq("user_id", userData.user.id).eq("role", "admin").maybeSingle();
+        isAdmin = !!roleRow;
+      }
+    }
 
     const saJson = Deno.env.get("FCM_SERVICE_ACCOUNT_JSON");
     if (!saJson) throw new Error("FCM_SERVICE_ACCOUNT_JSON not configured");
     const sa = JSON.parse(saJson);
 
-    const body = await req.json().catch(() => ({}));
-    const { user_ids, scope, title, body: text, url, data } = body || {};
+    const reqBody = await req.json().catch(() => ({}));
+    let { user_ids, scope, title, body: text, url, data } = reqBody || {};
+    // Customers (non-admin) may only alert staff about a new order, with limited text.
+    if (!isAdmin) {
+      if (scope !== "admin") return unauthorized("Admin role required");
+      user_ids = undefined;
+      data = undefined;
+      title = String(title || "").slice(0, 60);
+      text = String(text || "").slice(0, 160);
+      url = "/admin/orders";
+    }
     if (!title || !text) {
       return new Response(JSON.stringify({ error: "title and body required" }), {
         status: 400,
@@ -135,7 +143,12 @@ Deno.serve(async (req) => {
           data: dataPayload,
           webpush: {
             fcm_options: url ? { link: url } : undefined,
-            notification: { icon: "/icons/icon-192.png", badge: "/icons/icon-192.png" },
+            headers: { Urgency: "high", TTL: "86400" },
+            notification: {
+              icon: "/icons/icon-192.png", badge: "/icons/icon-192.png",
+              requireInteraction: true, vibrate: [200, 100, 200, 100, 200], renotify: true,
+              tag: `n-${Date.now()}`,
+            },
           },
         },
       };
