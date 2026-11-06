@@ -1,0 +1,146 @@
+CREATE OR REPLACE FUNCTION public.place_customer_order(p_items jsonb, p_customer_name text, p_customer_phone text, p_customer_address text, p_delivery_lat numeric, p_delivery_lng numeric, p_coupon_code text, p_points_redeemed integer)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO ''
+AS $function$
+DECLARE
+  v_user_id uuid := auth.uid();
+  v_item jsonb;
+  v_food_id text;
+  v_order_food_id uuid;
+  v_title text;
+  v_price numeric;
+  v_quantity integer;
+  v_lines jsonb := '[]'::jsonb;
+  v_subtotal numeric := 0;
+  v_discount numeric := 0;
+  v_coupon_discount numeric := 0;
+  v_delivery numeric := 0;
+  v_total numeric := 0;
+  v_balance integer := 0;
+  v_points integer := coalesce(p_points_redeemed, 0);
+  v_earned integer := 0;
+  v_order_id uuid;
+  v_settings public.delivery_settings%ROWTYPE;
+  v_area public.delivery_areas%ROWTYPE;
+  v_coupon public.coupons%ROWTYPE;
+  v_distance double precision;
+  v_area_distance double precision;
+BEGIN
+  IF v_user_id IS NULL THEN RAISE EXCEPTION 'Please sign in to place an order'; END IF;
+  IF nullif(trim(p_customer_name), '') IS NULL OR length(trim(p_customer_name)) > 120
+     OR nullif(trim(p_customer_phone), '') IS NULL OR length(trim(p_customer_phone)) > 40
+     OR nullif(trim(p_customer_address), '') IS NULL OR length(trim(p_customer_address)) > 500
+     OR p_delivery_lat IS NULL OR p_delivery_lng IS NULL
+     OR p_delivery_lat NOT BETWEEN -90 AND 90 OR p_delivery_lng NOT BETWEEN -180 AND 180
+     OR jsonb_typeof(p_items) <> 'array' OR jsonb_array_length(p_items) < 1 OR jsonb_array_length(p_items) > 50 THEN
+    RAISE EXCEPTION 'Please check your delivery and order details';
+  END IF;
+
+  FOR v_item IN SELECT value FROM pg_catalog.jsonb_array_elements(p_items) AS x(value) LOOP
+    v_food_id := v_item->>'id';
+    IF v_food_id IS NULL THEN RAISE EXCEPTION 'Invalid menu item'; END IF;
+    v_quantity := (v_item->>'quantity')::integer;
+    IF v_quantity < 1 OR v_quantity > 50 THEN RAISE EXCEPTION 'Invalid item quantity'; END IF;
+    v_price := NULL;
+    v_order_food_id := NULL;
+    SELECT f.id, f.title, f.price INTO v_order_food_id, v_title, v_price FROM public.foods AS f
+      WHERE f.id::text = v_food_id AND f.active = true;
+    IF v_price IS NULL THEN
+      SELECT d.title, d.price INTO v_title, v_price FROM public.deals AS d
+        WHERE d.id::text = v_food_id AND d.active = true;
+    END IF;
+    IF v_price IS NULL THEN RAISE EXCEPTION 'A menu item is no longer available'; END IF;
+    v_lines := v_lines || jsonb_build_array(jsonb_build_object(
+      'id', v_food_id, 'food_id', v_order_food_id, 'title', v_title, 'price', v_price, 'quantity', v_quantity
+    ));
+    v_subtotal := v_subtotal + v_price * v_quantity;
+  END LOOP;
+
+  SELECT * INTO v_settings FROM public.delivery_settings AS s ORDER BY s.updated_at DESC LIMIT 1;
+  IF FOUND THEN
+    v_distance := 6371 * 2 * asin(sqrt(least(1.0,
+      power(sin(radians(p_delivery_lat - v_settings.center_lat) / 2), 2) +
+      cos(radians(v_settings.center_lat)) * cos(radians(p_delivery_lat)) *
+      power(sin(radians(p_delivery_lng - v_settings.center_lng) / 2), 2)
+    )));
+    IF v_distance <= v_settings.free_radius_km THEN
+      v_delivery := v_settings.base_delivery_charges;
+    ELSE
+      SELECT * INTO v_area FROM public.delivery_areas AS a WHERE a.active = true
+        ORDER BY 6371 * 2 * asin(sqrt(least(1.0,
+          power(sin(radians(p_delivery_lat - a.lat) / 2), 2) +
+          cos(radians(a.lat)) * cos(radians(p_delivery_lat)) *
+          power(sin(radians(p_delivery_lng - a.lng) / 2), 2)
+        ))) LIMIT 1;
+      IF FOUND THEN
+        v_area_distance := 6371 * 2 * asin(sqrt(least(1.0,
+          power(sin(radians(p_delivery_lat - v_area.lat) / 2), 2) +
+          cos(radians(v_area.lat)) * cos(radians(p_delivery_lat)) *
+          power(sin(radians(p_delivery_lng - v_area.lng) / 2), 2)
+        )));
+        IF v_area_distance > v_area.radius_km THEN RAISE EXCEPTION 'We do not deliver to this location'; END IF;
+        v_delivery := v_area.delivery_charges;
+      ELSE
+        RAISE EXCEPTION 'We do not deliver to this location';
+      END IF;
+    END IF;
+  ELSE
+    RAISE EXCEPTION 'Delivery is temporarily unavailable';
+  END IF;
+
+  IF nullif(trim(coalesce(p_coupon_code, '')), '') IS NOT NULL THEN
+    SELECT * INTO v_coupon FROM public.coupons AS c
+      WHERE upper(c.code) = upper(trim(p_coupon_code)) AND c.active = true FOR UPDATE;
+    IF NOT FOUND OR (v_coupon.expires_at IS NOT NULL AND v_coupon.expires_at <= now())
+       OR (v_coupon.usage_limit IS NOT NULL AND v_coupon.used_count >= v_coupon.usage_limit)
+       OR v_subtotal < v_coupon.min_order_amount THEN
+      RAISE EXCEPTION 'Coupon is invalid or no longer available';
+    END IF;
+    IF v_coupon.discount_type = 'percent' THEN
+      v_coupon_discount := round(v_subtotal * v_coupon.discount_value / 100);
+    ELSE
+      v_coupon_discount := round(v_coupon.discount_value);
+    END IF;
+    IF v_coupon.max_discount IS NOT NULL THEN v_coupon_discount := least(v_coupon_discount, v_coupon.max_discount); END IF;
+    v_coupon_discount := least(v_coupon_discount, v_subtotal);
+    UPDATE public.coupons SET used_count = used_count + 1 WHERE id = v_coupon.id;
+  END IF;
+
+  SELECT coalesce(sum(t.points), 0)::integer INTO v_balance
+  FROM public.loyalty_transactions AS t WHERE t.user_id = v_user_id;
+  IF v_points < 0 OR v_points > v_balance OR v_points > greatest(0, floor(v_subtotal - v_coupon_discount)::integer)
+     OR (v_points > 0 AND v_points < 50) THEN
+    RAISE EXCEPTION 'The requested loyalty points are not available';
+  END IF;
+  v_discount := v_coupon_discount + v_points;
+  v_total := greatest(0, v_subtotal - v_discount + v_delivery);
+  v_earned := floor(v_total * 0.01)::integer;
+
+  INSERT INTO public.orders (
+    user_id, total, subtotal, status, customer_name, customer_phone, customer_email,
+    customer_address, coupon_code, discount_amount, points_earned, points_redeemed,
+    delivery_charges, source, payment_method, amount_paid, order_type, delivery_lat, delivery_lng
+  ) VALUES (
+    v_user_id, v_total, v_subtotal, 'pending', trim(p_customer_name), trim(p_customer_phone),
+    (SELECT u.email FROM auth.users AS u WHERE u.id = v_user_id), trim(p_customer_address),
+    CASE WHEN v_coupon.id IS NULL THEN NULL ELSE v_coupon.code END, v_discount, v_earned, v_points,
+    v_delivery, 'web', 'cod', 0, 'delivery', p_delivery_lat, p_delivery_lng
+  ) RETURNING id INTO v_order_id;
+
+  INSERT INTO public.order_items(order_id, food_id, title, quantity, price)
+  SELECT v_order_id, nullif(x->>'food_id', '')::uuid, x->>'title', (x->>'quantity')::integer, (x->>'price')::numeric
+  FROM pg_catalog.jsonb_array_elements(v_lines) AS q(x);
+
+  IF v_coupon.id IS NOT NULL THEN
+    INSERT INTO public.coupon_redemptions(coupon_id, user_id, order_id, discount_amount)
+    VALUES (v_coupon.id, v_user_id, v_order_id, v_coupon_discount);
+  END IF;
+  IF v_points > 0 THEN
+    INSERT INTO public.loyalty_transactions(user_id, points, reason, order_id)
+    VALUES (v_user_id, -v_points, 'Order points redeemed', v_order_id);
+  END IF;
+  RETURN v_order_id;
+END;
+$function$;

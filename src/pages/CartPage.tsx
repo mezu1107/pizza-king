@@ -51,7 +51,7 @@ const CartPage = () => {
 
   useEffect(() => {
     if (user) {
-      supabase.from("profiles").select("*").eq("user_id", user.id).single().then(({ data }) => {
+      supabase.from("profiles").select("*").eq("user_id", user.id).maybeSingle().then(({ data }) => {
         if (data) {
           setCustomerName((data as any).full_name || "");
           setPhone((data as any).phone || "");
@@ -138,12 +138,13 @@ const CartPage = () => {
     setPlacing(true);
     try {
       try {
-        await supabase.from("profiles").upsert({
+        const { error: profileError } = await supabase.from("profiles").upsert({
           user_id: user.id,
           full_name: customerName,
           phone,
           address,
-        } as any);
+        } as any, { onConflict: "user_id" });
+        if (profileError) console.warn("Profile update skipped:", profileError);
       } catch (profErr) {
         console.warn("Profile update skipped:", profErr);
       }

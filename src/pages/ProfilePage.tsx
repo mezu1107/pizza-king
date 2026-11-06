@@ -106,7 +106,7 @@ const ProfilePage = () => {
   const fetchData = async () => {
     if (!user) return;
     const [profileRes, ordersRes, loyaltyRes, refRes] = await Promise.all([
-      supabase.from("profiles").select("*").eq("user_id", user.id).single(),
+      supabase.from("profiles").select("*").eq("user_id", user.id).maybeSingle(),
       supabase.from("orders").select("*").order("created_at", { ascending: false }),
       supabase.from("loyalty_transactions" as any).select("*").eq("user_id", user.id).order("created_at", { ascending: false }).limit(20),
       supabase.from("referrals" as any).select("id").eq("referrer_id", user.id),
