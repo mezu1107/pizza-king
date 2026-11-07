@@ -150,7 +150,7 @@ const CartPage = () => {
       }
 
       const { data: placedOrderId, error: placeError } = await (supabase as any).rpc("place_customer_order", {
-        p_items: items.map((item) => ({ id: item.id, quantity: item.quantity })),
+        p_items: items.map((item) => ({ id: item.foodId || item.id, quantity: item.quantity, ...(item.options ? { options: item.options } : {}), ...(item.note ? { note: item.note } : {}) })),
         p_customer_name: customerName.trim(),
         p_customer_phone: phone.trim(),
         p_customer_address: address.trim(),
@@ -218,6 +218,8 @@ const CartPage = () => {
                       <img src={item.imageUrl} alt={item.title} className="w-20 h-20 rounded-xl object-cover" />
                       <div className="flex-1 min-w-0">
                         <h3 className="font-bold text-foreground truncate">{item.title}</h3>
+                        {item.optionLabels?.length ? <p className="text-xs text-muted-foreground line-clamp-2">{item.optionLabels.join(" · ")}</p> : null}
+                        {item.note ? <p className="text-xs text-muted-foreground italic truncate">Note: {item.note}</p> : null}
                         <p className="text-primary font-semibold">Rs. {item.price.toLocaleString()}</p>
                       </div>
                       <div className="flex items-center gap-2">

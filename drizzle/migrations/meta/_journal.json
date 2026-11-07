@@ -64,6 +64,13 @@
       "when": 1793982811916,
       "tag": "0008_preserve_deal_order_items",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794074880756,
+      "tag": "0009_pizza_customizer_and_table_service",
+      "breakpoints": true
     }
   ]
 }

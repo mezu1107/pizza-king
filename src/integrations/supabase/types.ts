@@ -1287,6 +1287,47 @@ export type Database = {
         }
         Relationships: []
       }
+      table_service_requests: {
+        Row: {
+          attended_at: string | null
+          created_at: string
+          id: string
+          request_type: string
+          status: string
+          table_id: string | null
+          table_name: string
+          table_no: number
+        }
+        Insert: {
+          attended_at?: string | null
+          created_at?: string
+          id?: string
+          request_type: string
+          status?: string
+          table_id?: string | null
+          table_name: string
+          table_no: number
+        }
+        Update: {
+          attended_at?: string | null
+          created_at?: string
+          id?: string
+          request_type?: string
+          status?: string
+          table_id?: string | null
+          table_name?: string
+          table_no?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "table_service_requests_table_id_fkey"
+            columns: ["table_id"]
+            isOneToOne: false
+            referencedRelation: "pos_tables"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       testimonials: {
         Row: {
           avatar: string | null
@@ -1596,6 +1637,15 @@ export type Database = {
           }
         | { Args: { _role: string; _user_id: string }; Returns: boolean }
       is_confirmed_auth_email: { Args: { p_email: string }; Returns: boolean }
+      pizza_option_catalog: {
+        Args: never
+        Returns: {
+          key: string
+          label: string
+          price: number
+          sort: number
+        }[]
+      }
       place_customer_order: {
         Args: {
           p_coupon_code: string
@@ -1663,6 +1713,10 @@ export type Database = {
           _order_id: string
         }
         Returns: number
+      }
+      request_table_service: {
+        Args: { _code: string; _type: string }
+        Returns: undefined
       }
       set_package_features: {
         Args: { p_features: string[]; p_plan_key: string; p_secret: string }

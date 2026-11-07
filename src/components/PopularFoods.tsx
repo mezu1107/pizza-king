@@ -7,6 +7,8 @@ import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
+import PizzaCustomizer from "@/components/PizzaCustomizer";
+import { isPizza } from "@/lib/pizzaOptions";
 
 type Food = Tables<"foods">;
 
@@ -48,6 +50,7 @@ const PopularFoods = () => {
   const { toast } = useToast();
   const [foods, setFoods] = useState<Food[]>([]);
   const [loading, setLoading] = useState(true);
+  const [customizing, setCustomizing] = useState<Food | null>(null);
 
   useEffect(() => {
     const fetch = async () => {
@@ -59,6 +62,7 @@ const PopularFoods = () => {
   }, []);
 
   const handleAddToCart = (food: Food) => {
+    if (isPizza(food.title)) { setCustomizing(food); return; }
     addItem({ id: food.id, title: food.title, price: food.price, imageUrl: food.image_url });
     toast({ title: `${food.title} added to cart!` });
   };
@@ -171,6 +175,7 @@ const PopularFoods = () => {
           </Link>
         </div>
       </div>
+      <PizzaCustomizer food={customizing} onClose={() => setCustomizing(null)} />
     </section>
   );
 };

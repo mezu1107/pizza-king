@@ -1,0 +1,91 @@
+import { useEffect, useState } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Minus, Plus, ShoppingCart, Check } from "lucide-react";
+import { CRUSTS, TOPPINGS, DIPS, optionByKey, optionsTotal, type PizzaOption } from "@/lib/pizzaOptions";
+import { useCart } from "@/contexts/CartContext";
+import { useToast } from "@/hooks/use-toast";
+
+interface Props {
+  food: { id: string; title: string; price: number; image_url: string; description?: string | null } | null;
+  onClose: () => void;
+}
+
+export default function PizzaCustomizer({ food, onClose }: Props) {
+  const { addItem } = useCart();
+  const { toast } = useToast();
+  const [crust, setCrust] = useState("crust:pan");
+  const [extras, setExtras] = useState<string[]>([]);
+  const [note, setNote] = useState("");
+  const [qty, setQty] = useState(1);
+
+  useEffect(() => { setCrust("crust:pan"); setExtras([]); setNote(""); setQty(1); }, [food?.id]);
+
+  if (!food) return null;
+  const keys = [crust, ...extras];
+  const unit = Number(food.price) + optionsTotal(keys);
+  const toggle = (k: string) => setExtras((e) => (e.includes(k) ? e.filter((x) => x !== k) : [...e, k]));
+
+  const add = () => {
+    const sorted = [...keys].sort();
+    const cleanNote = note.trim().slice(0, 200);
+    addItem({
+      id: `${food.id}|${sorted.join(",")}|${cleanNote}`,
+      foodId: food.id,
+      title: food.title,
+      price: unit,
+      imageUrl: food.image_url,
+      options: sorted,
+      optionLabels: keys.map((k) => optionByKey(k)?.label || k),
+      note: cleanNote || undefined,
+    }, qty);
+    toast({ title: `${food.title} × ${qty} added to cart!` });
+    onClose();
+  };
+
+  const Chip = ({ o, active, onClick }: { o: PizzaOption; active: boolean; onClick: () => void }) => (
+    <button type="button" onClick={onClick} aria-pressed={active}
+      className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-sm text-left transition-colors ${active ? "border-primary bg-primary/10 text-foreground" : "border-border hover:border-primary/50"}`}>
+      <span className="flex items-center gap-2">{active && <Check className="w-4 h-4 text-primary" />}{o.label}</span>
+      <span className="text-muted-foreground text-xs shrink-0">{o.price ? `+Rs ${o.price}` : "Free"}</span>
+    </button>
+  );
+
+  return (
+    <Dialog open={!!food} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto p-0">
+        <img src={food.image_url} alt={food.title} className="w-full h-44 object-cover" />
+        <div className="p-5 space-y-5">
+          <DialogHeader><DialogTitle className="text-2xl">Customize {food.title}</DialogTitle></DialogHeader>
+          <section className="space-y-2">
+            <h3 className="font-semibold">Choose crust</h3>
+            <div className="grid grid-cols-2 gap-2">{CRUSTS.map((o) => <Chip key={o.key} o={o} active={crust === o.key} onClick={() => setCrust(o.key)} />)}</div>
+          </section>
+          <section className="space-y-2">
+            <h3 className="font-semibold">Extra toppings</h3>
+            <div className="grid grid-cols-2 gap-2">{TOPPINGS.map((o) => <Chip key={o.key} o={o} active={extras.includes(o.key)} onClick={() => toggle(o.key)} />)}</div>
+          </section>
+          <section className="space-y-2">
+            <h3 className="font-semibold">Dips & sauces</h3>
+            <div className="grid grid-cols-2 gap-2">{DIPS.map((o) => <Chip key={o.key} o={o} active={extras.includes(o.key)} onClick={() => toggle(o.key)} />)}</div>
+          </section>
+          <section className="space-y-2">
+            <h3 className="font-semibold">Special instructions</h3>
+            <Textarea value={note} maxLength={200} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Less spicy, well done" />
+          </section>
+          <div className="flex items-center gap-3 pt-1">
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="icon" className="h-9 w-9 rounded-full" onClick={() => setQty(Math.max(1, qty - 1))} aria-label="Less"><Minus className="w-4 h-4" /></Button>
+              <span className="w-6 text-center font-bold">{qty}</span>
+              <Button variant="outline" size="icon" className="h-9 w-9 rounded-full" onClick={() => setQty(Math.min(50, qty + 1))} aria-label="More"><Plus className="w-4 h-4" /></Button>
+            </div>
+            <Button onClick={add} className="flex-1 h-12 rounded-full font-bold gap-2">
+              <ShoppingCart className="w-5 h-5" /> Add · Rs {(unit * qty).toLocaleString()}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}

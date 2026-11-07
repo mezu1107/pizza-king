@@ -19,6 +19,8 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import type { DbFood, DbCategory } from "@/types/database";
 import { addRecentlyViewed } from "@/lib/recentlyViewed";
+import PizzaCustomizer from "@/components/PizzaCustomizer";
+import { isPizza } from "@/lib/pizzaOptions";
 
 type SortKey = "popular" | "price-asc" | "price-desc" | "rating" | "newest";
 
@@ -32,6 +34,7 @@ const MenuPage = () => {
   const [maxPrice, setMaxPrice] = useState<string>("");
   const [showFilters, setShowFilters] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [customizing, setCustomizing] = useState<DbFood | null>(null);
   const { addItem } = useCart();
   const { addItem: addToWishlist, removeItem: removeFromWishlist, isInWishlist } = useWishlist();
   const { toast } = useToast();
@@ -88,6 +91,12 @@ const MenuPage = () => {
   }, [foods, selectedCategory, searchQuery, sort, minRating, maxPrice]);
 
   const handleAddToCart = (food: DbFood) => {
+    const catTitle = categories.find((c) => c.id === food.category_id)?.title;
+    if (isPizza(food.title, catTitle)) {
+      addRecentlyViewed({ id: food.id, title: food.title, price: food.price, imageUrl: food.image_url });
+      setCustomizing(food);
+      return;
+    }
     addItem({ id: food.id, title: food.title, price: food.price, imageUrl: food.image_url });
     addRecentlyViewed({ id: food.id, title: food.title, price: food.price, imageUrl: food.image_url });
     toast({ title: `${food.title} added to cart!` });
@@ -363,6 +372,7 @@ const MenuPage = () => {
           )}
         </div>
       </main>
+      <PizzaCustomizer food={customizing} onClose={() => setCustomizing(null)} />
       <Footer />
     </div>
   );
