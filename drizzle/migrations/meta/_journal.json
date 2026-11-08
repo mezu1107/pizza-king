@@ -71,6 +71,13 @@
       "when": 1794074880756,
       "tag": "0009_pizza_customizer_and_table_service",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794137012372,
+      "tag": "0010_enable_dinein_pizza_customization",
+      "breakpoints": true
     }
   ]
 }
