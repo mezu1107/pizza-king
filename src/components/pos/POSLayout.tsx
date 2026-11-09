@@ -2,6 +2,7 @@ import { ReactNode, useEffect, useRef } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { NavLink } from "@/components/NavLink";
 import { useAdminCheck } from "@/hooks/useAdminCheck";
+import { useStaffOrderAlerts } from "@/hooks/useStaffOrderAlerts";
 import { usePWAManifest } from "@/hooks/usePWAInstall";
 import { usePushRegistration } from "@/hooks/usePushRegistration";
 import { useInstallPrompt } from "@/hooks/useInstallPrompt";
@@ -47,30 +48,11 @@ export default function POSLayout({ children, title }: { children: ReactNode; ti
   const { canInstall, installed, promptInstall } = useInstallPrompt();
   const location = useLocation();
   const navigate = useNavigate();
-  const { toast } = useToast();
-  const seen = useRef<Set<string>>(new Set());
   usePWAManifest("/manifest-pos.json");
   usePushRegistration("admin");
 
-  // Global live alert: every website / WhatsApp / POS order lands here instantly.
-  useEffect(() => {
-    if (!isAdmin) return;
-    const channel = supabase
-      .channel("pos-live-orders")
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "orders" }, (payload) => {
-        const row = payload.new as { id: string; customer_name?: string | null; total: number; source?: string | null };
-        if (seen.current.has(row.id)) return;
-        seen.current.add(row.id);
-        toast({
-          title: `🔔 New ${(row.source || "web").toUpperCase()} order`,
-          description: `${row.customer_name || "Customer"} • ${money(row.total)}`,
-        });
-      })
-      .subscribe();
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [isAdmin, toast]);
+  // Global live alert with sound: new orders, table orders and waiter/bill requests.
+  useStaffOrderAlerts(isAdmin);
 
   if (loading) {
     return (

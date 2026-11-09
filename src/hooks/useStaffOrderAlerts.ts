@@ -3,6 +3,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { playNotificationSound } from "@/lib/sound";
 import { toast } from "sonner";
 
+export const SERVICE_LABELS: Record<string, string> = {
+  call_waiter: "Waiter called",
+  request_bill: "Bill requested",
+  water_napkins: "Water / napkins requested",
+};
+
 /** Plays a sound + shows a system notification whenever a new order arrives (admin/POS screens). */
 export function useStaffOrderAlerts(enabled: boolean) {
   useEffect(() => {
@@ -30,6 +36,11 @@ export function useStaffOrderAlerts(enabled: boolean) {
       })
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "dine_in_orders" }, (p: any) => {
         notify("🍽️ New Table Order", `Table ${p.new?.table_no ?? ""}`, "/admin/dine-in");
+      })
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "table_service_requests" }, (p: any) => {
+        const r = p.new || {};
+        const label = SERVICE_LABELS[r.request_type] || "Service request";
+        notify(`🙋 ${label}`, `${r.table_name || `Table ${r.table_no ?? ""}`} needs attention`, "/admin/dine-in");
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };

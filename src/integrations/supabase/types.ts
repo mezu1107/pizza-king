@@ -761,6 +761,33 @@ export type Database = {
           },
         ]
       }
+      pizza_options: {
+        Row: {
+          active: boolean
+          key: string
+          label: string
+          price: number
+          sort: number
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          key: string
+          label: string
+          price?: number
+          sort?: number
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          key?: string
+          label?: string
+          price?: number
+          sort?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       pos_expenses: {
         Row: {
           amount: number
@@ -944,6 +971,33 @@ export type Database = {
           updated_at?: string
           user_agent?: string | null
           user_id?: string
+        }
+        Relationships: []
+      }
+      qr_frame_settings: {
+        Row: {
+          frame_image_url: string | null
+          frame_style: string
+          headline: string
+          id: number
+          tagline: string
+          updated_at: string
+        }
+        Insert: {
+          frame_image_url?: string | null
+          frame_style?: string
+          headline?: string
+          id?: number
+          tagline?: string
+          updated_at?: string
+        }
+        Update: {
+          frame_image_url?: string | null
+          frame_style?: string
+          headline?: string
+          id?: number
+          tagline?: string
+          updated_at?: string
         }
         Relationships: []
       }

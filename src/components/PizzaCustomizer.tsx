@@ -3,44 +3,50 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Minus, Plus, ShoppingCart, Check } from "lucide-react";
-import { CRUSTS, TOPPINGS, DIPS, optionByKey, optionsTotal, type PizzaOption } from "@/lib/pizzaOptions";
+import { usePizzaOptions, optionsTotal, type PizzaOption } from "@/lib/pizzaOptions";
 import { useCart } from "@/contexts/CartContext";
 import { useToast } from "@/hooks/use-toast";
 
 interface Props {
   food: { id: string; title: string; price: number; image_url: string; description?: string | null } | null;
   onClose: () => void;
+  /** Optional custom handler (e.g. table QR menu); defaults to the main cart. */
+  onAdd?: (line: { id: string; foodId: string; title: string; price: number; options: string[]; optionLabels: string[]; note?: string }, qty: number) => void;
 }
 
-export default function PizzaCustomizer({ food, onClose }: Props) {
+export default function PizzaCustomizer({ food, onClose, onAdd }: Props) {
+  const { crusts: CRUSTS, toppings: TOPPINGS, dips: DIPS, all } = usePizzaOptions();
   const { addItem } = useCart();
   const { toast } = useToast();
-  const [crust, setCrust] = useState("crust:pan");
+  const [crust, setCrust] = useState("");
   const [extras, setExtras] = useState<string[]>([]);
   const [note, setNote] = useState("");
   const [qty, setQty] = useState(1);
 
-  useEffect(() => { setCrust("crust:pan"); setExtras([]); setNote(""); setQty(1); }, [food?.id]);
+  useEffect(() => { setCrust(""); setExtras([]); setNote(""); setQty(1); }, [food?.id]);
+
+  useEffect(() => { if (!crust && CRUSTS.length) setCrust(CRUSTS[0].key); }, [CRUSTS, crust]);
 
   if (!food) return null;
-  const keys = [crust, ...extras];
-  const unit = Number(food.price) + optionsTotal(keys);
+  const keys = [crust, ...extras].filter((k) => all.some((o) => o.key === k));
+  const unit = Number(food.price) + optionsTotal(keys, all);
   const toggle = (k: string) => setExtras((e) => (e.includes(k) ? e.filter((x) => x !== k) : [...e, k]));
 
   const add = () => {
     const sorted = [...keys].sort();
     const cleanNote = note.trim().slice(0, 200);
-    addItem({
+    const line = {
       id: `${food.id}|${sorted.join(",")}|${cleanNote}`,
       foodId: food.id,
       title: food.title,
       price: unit,
-      imageUrl: food.image_url,
       options: sorted,
-      optionLabels: keys.map((k) => optionByKey(k)?.label || k),
+      optionLabels: keys.map((k) => all.find((o) => o.key === k)?.label || k),
       note: cleanNote || undefined,
-    }, qty);
-    toast({ title: `${food.title} × ${qty} added to cart!` });
+    };
+    if (onAdd) onAdd(line, qty);
+    else addItem({ ...line, imageUrl: food.image_url }, qty);
+    toast({ title: `${food.title} × ${qty} added!` });
     onClose();
   };
 
@@ -62,14 +68,14 @@ export default function PizzaCustomizer({ food, onClose }: Props) {
             <h3 className="font-semibold">Choose crust</h3>
             <div className="grid grid-cols-2 gap-2">{CRUSTS.map((o) => <Chip key={o.key} o={o} active={crust === o.key} onClick={() => setCrust(o.key)} />)}</div>
           </section>
-          <section className="space-y-2">
+          {TOPPINGS.length > 0 && <section className="space-y-2">
             <h3 className="font-semibold">Extra toppings</h3>
             <div className="grid grid-cols-2 gap-2">{TOPPINGS.map((o) => <Chip key={o.key} o={o} active={extras.includes(o.key)} onClick={() => toggle(o.key)} />)}</div>
-          </section>
-          <section className="space-y-2">
+          </section>}
+          {DIPS.length > 0 && <section className="space-y-2">
             <h3 className="font-semibold">Dips & sauces</h3>
             <div className="grid grid-cols-2 gap-2">{DIPS.map((o) => <Chip key={o.key} o={o} active={extras.includes(o.key)} onClick={() => toggle(o.key)} />)}</div>
-          </section>
+          </section>}
           <section className="space-y-2">
             <h3 className="font-semibold">Special instructions</h3>
             <Textarea value={note} maxLength={200} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Less spicy, well done" />

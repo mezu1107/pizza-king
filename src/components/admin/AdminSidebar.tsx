@@ -1,4 +1,5 @@
 import {
+  Pizza,
   LayoutDashboard,
   UtensilsCrossed,
   Tag,
@@ -37,6 +38,7 @@ import { Button } from "@/components/ui/button";
 const mainItems = [
   { title: "Dashboard", url: "/admin", icon: LayoutDashboard },
   { title: "Menu Items", url: "/admin/menu", icon: UtensilsCrossed },
+  { title: "Pizza crusts & toppings", url: "/admin/pizza-options", icon: Pizza },
   { title: "Deals", url: "/admin/deals", icon: Tag },
   { title: "Categories", url: "/admin/categories", icon: FolderOpen },
   { title: "Orders", url: "/admin/orders", icon: ShoppingBag },

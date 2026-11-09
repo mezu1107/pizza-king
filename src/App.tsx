@@ -26,6 +26,7 @@ import OrderSuccessPage from "./pages/OrderSuccessPage";
 import NotFound from "./pages/NotFound";
 import TableMenuPage from "./pages/TableMenuPage";
 import AdminDineIn from "./pages/admin/AdminDineIn";
+import AdminPizzaOptions from "./pages/admin/AdminPizzaOptions";
 import AdminRiderManage from "./pages/admin/AdminRiderManage";
 import UnlockPage from "./pages/UnlockPage";
 import TrackSubscriptionPage from "./pages/TrackSubscriptionPage";
@@ -129,6 +130,7 @@ const AnimatedRoutes = () => {
         <Route path="/admin/coupons" element={<LockedRoute moduleKey="/admin/coupons"><AdminCoupons /></LockedRoute>} />
         <Route path="/admin/settings" element={<LockedRoute moduleKey="/admin/settings"><AdminSettings /></LockedRoute>} />
         <Route path="/admin/dine-in" element={<AdminDineIn />} />
+        <Route path="/admin/pizza-options" element={<AdminPizzaOptions />} />
         <Route path="/admin/subscriptions" element={<SubscriptionsPage />} />
         <Route path="/feature-store" element={<FeatureStorePage />} />
         <Route path="/checkout" element={<CheckoutPage />} />

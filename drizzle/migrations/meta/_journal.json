@@ -78,6 +78,13 @@
       "when": 1794137012372,
       "tag": "0010_enable_dinein_pizza_customization",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1794251055256,
+      "tag": "0011_admin_pizza_options_and_qr_frames",
+      "breakpoints": true
     }
   ]
 }

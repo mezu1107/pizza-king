@@ -1,4 +1,3 @@
-import { playNotificationSound } from "@/lib/sound";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import QRCode from "qrcode";
 import { supabase } from "@/integrations/supabase/client";
@@ -11,11 +10,14 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, QrCode, Download, Printer, RefreshCw, ExternalLink } from "lucide-react";
+import { Plus, Trash2, QrCode, Download, Printer, RefreshCw, ExternalLink, Upload, BellRing, Check } from "lucide-react";
+import { renderQrFrame, DEFAULT_FRAME, type FrameSettings, type FrameStyle } from "@/lib/qrFrame";
+import { SERVICE_LABELS } from "@/hooks/useStaffOrderAlerts";
 
 interface TableRow { id: string; table_no: number; name: string; seats: number; code: string | null; active: boolean }
 interface Line { id: string; title: string; price: number; quantity: number }
 interface DineOrder { id: string; table_no: number; table_name: string; customer_name: string; customer_phone: string | null; notes: string | null; items: Line[]; total: number; status: string; placed_by: string; created_at: string }
+interface ServiceReq { id: string; table_no: number; table_name: string; request_type: string; status: string; created_at: string }
 interface MenuItem { id: string; title: string; price: number }
 
 const STATUSES = ["pending", "accepted", "preparing", "ready", "served", "completed", "cancelled"];
@@ -35,14 +37,21 @@ export default function AdminDineIn() {
   const [placeFor, setPlaceFor] = useState<TableRow | null>(null);
   const [cart, setCart] = useState<Record<string, number>>({});
   const [custName, setCustName] = useState("");
+  const [requests, setRequests] = useState<ServiceReq[]>([]);
+  const [frame, setFrame] = useState<FrameSettings>(DEFAULT_FRAME);
+  const [frameImg, setFrameImg] = useState<string | null>(null);
+  const [framed, setFramed] = useState<Record<string, string>>({});
+  const [uploading, setUploading] = useState(false);
 
   const load = useCallback(async () => {
-    const [t, o, f, d] = await Promise.all([
+    const [t, o, f, d, r] = await Promise.all([
       supabase.from("pos_tables").select("id,table_no,name,seats,code,active").order("table_no"),
       supabase.from("dine_in_orders").select("*").order("created_at", { ascending: false }).limit(200),
       supabase.from("foods").select("id,title,price").eq("active", true).order("title"),
       supabase.from("deals").select("id,title,price").eq("active", true).order("title"),
+      supabase.from("table_service_requests").select("*").eq("status", "pending").order("created_at", { ascending: false }).limit(100),
     ]);
+    setRequests((r.data as ServiceReq[]) || []);
     setTables((t.data as TableRow[]) || []);
     setOrders((o.data as unknown as DineOrder[]) || []);
     setMenu([...((d.data as MenuItem[]) || []), ...((f.data as MenuItem[]) || [])]);
@@ -53,13 +62,8 @@ export default function AdminDineIn() {
   useEffect(() => {
     const ch = supabase
       .channel(`dine-in-${Math.random().toString(36).slice(2)}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "dine_in_orders" }, (p) => {
-        if (p.eventType === "INSERT") {
-          toast({ title: `New order from table ${(p.new as DineOrder).table_no}` });
-          playNotificationSound();
-        }
-        load();
-      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "dine_in_orders" }, () => load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "table_service_requests" }, () => load())
       .subscribe();
     return () => { supabase.removeChannel(ch); };
   }, [load, toast]);
@@ -71,6 +75,55 @@ export default function AdminDineIn() {
       setQrs(map);
     })();
   }, [tables]);
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.from("qr_frame_settings").select("frame_style,headline,tagline,frame_image_url").eq("id", 1).maybeSingle();
+      if (!data) return;
+      setFrame(data as FrameSettings);
+      if (data.frame_image_url) {
+        const { data: blob } = await supabase.storage.from("qr-frames").download(data.frame_image_url);
+        if (blob) setFrameImg(await new Promise<string>((res) => { const fr = new FileReader(); fr.onload = () => res(fr.result as string); fr.readAsDataURL(blob); }));
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const map: Record<string, string> = {};
+      for (const t of tables) if (t.code && qrs[t.id]) {
+        try { map[t.id] = await renderQrFrame({ qrDataUrl: qrs[t.id], tableName: t.name, code: t.code, settings: frame, frameImage: frameImg }); } catch { /* keep plain QR */ }
+      }
+      if (alive) setFramed(map);
+    })();
+    return () => { alive = false; };
+  }, [qrs, tables, frame, frameImg]);
+
+  const saveFrame = async (next: FrameSettings) => {
+    setFrame(next);
+    const { error } = await supabase.from("qr_frame_settings").update({ frame_style: next.frame_style, headline: next.headline.slice(0, 60), tagline: next.tagline.slice(0, 80), frame_image_url: next.frame_image_url }).eq("id", 1);
+    if (error) toast({ title: "Could not save frame", description: error.message, variant: "destructive" });
+  };
+
+  const uploadFrame = async (file?: File) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/") || file.size > 5 * 1024 * 1024) return toast({ title: "Use an image under 5 MB", variant: "destructive" });
+    setUploading(true);
+    const path = `frame-${Date.now()}.${file.name.split(".").pop() || "png"}`;
+    const { error } = await supabase.storage.from("qr-frames").upload(path, file, { upsert: true, contentType: file.type });
+    setUploading(false);
+    if (error) return toast({ title: "Upload failed", description: error.message, variant: "destructive" });
+    setFrameImg(await new Promise<string>((res) => { const fr = new FileReader(); fr.onload = () => res(fr.result as string); fr.readAsDataURL(file); }));
+    await saveFrame({ ...frame, frame_style: "custom", frame_image_url: path });
+    toast({ title: "Frame uploaded", description: "Tip: keep the middle of your design empty for the QR." });
+  };
+
+  const attend = async (r: ServiceReq) => {
+    setRequests((x) => x.filter((y) => y.id !== r.id));
+    const { error } = await supabase.from("table_service_requests").update({ status: "attended", attended_at: new Date().toISOString() }).eq("id", r.id);
+    if (error) { toast({ title: "Update failed", description: error.message, variant: "destructive" }); load(); }
+  };
 
   const addTables = async () => {
     const n = Math.min(100, Math.max(1, Number(bulk) || 0));
@@ -97,7 +150,7 @@ export default function AdminDineIn() {
 
   const download = (t: TableRow) => {
     const a = document.createElement("a");
-    a.href = qrs[t.id]; a.download = `${t.name.replace(/\s+/g, "-")}-qr.png`; a.click();
+    a.href = framed[t.id] || qrs[t.id]; a.download = `${t.name.replace(/\s+/g, "-")}-qr.png`; a.click();
   };
 
   const printAll = (list: TableRow[]) => {
@@ -105,19 +158,13 @@ export default function AdminDineIn() {
     if (!w) return;
     const doc = w.document;
     doc.open();
-    doc.write("<!doctype html><html><head><title>Table QR codes</title><style>body{font-family:sans-serif;display:flex;flex-wrap:wrap;gap:16px;padding:16px}.c{width:220px;border:2px dashed #999;border-radius:12px;padding:12px;text-align:center;page-break-inside:avoid}img{width:190px}h2{margin:4px 0}p{margin:2px;font-size:12px}</style></head><body></body></html>");
+    doc.write("<!doctype html><html><head><title>Table QR codes</title><style>body{margin:0;display:flex;flex-wrap:wrap;gap:12px;padding:12px}img{width:300px;page-break-inside:avoid}@media print{img{width:48%}}</style></head><body></body></html>");
     doc.close();
     for (const table of list) {
-      const card = doc.createElement("div"); card.className = "c";
-      const heading = doc.createElement("h2"); heading.textContent = table.name;
-      const image = doc.createElement("img"); image.alt = `QR code for ${table.name}`; image.src = qrs[table.id] || "";
-      const scan = doc.createElement("p"); scan.textContent = "Scan to order";
-      const code = doc.createElement("p"); code.textContent = `Code: ${table.code || ""}`;
-      const brand = doc.createElement("p"); brand.textContent = "Pizza King";
-      card.append(heading, image, scan, code, brand);
-      doc.body.appendChild(card);
+      const image = doc.createElement("img"); image.alt = `QR code for ${table.name}`; image.src = framed[table.id] || qrs[table.id] || "";
+      doc.body.appendChild(image);
     }
-    w.setTimeout(() => { w.focus(); w.print(); }, 400);
+    w.setTimeout(() => { w.focus(); w.print(); }, 500);
   };
 
   const setStatus = async (o: DineOrder, status: string) => {
@@ -158,11 +205,24 @@ export default function AdminDineIn() {
     <AdminLayout title="Dine in and table QR">
       <Tabs defaultValue="orders" className="space-y-4">
         <TabsList>
-          <TabsTrigger value="orders">Live orders {shown.length ? `(${orders.filter((o) => !["completed", "cancelled"].includes(o.status)).length})` : ""}</TabsTrigger>
+          <TabsTrigger value="orders">{requests.length ? `🔔 ${requests.length} · ` : ""}Live orders {shown.length ? `(${orders.filter((o) => !["completed", "cancelled"].includes(o.status)).length})` : ""}</TabsTrigger>
           <TabsTrigger value="tables">Tables and QR</TabsTrigger>
         </TabsList>
 
         <TabsContent value="orders" className="space-y-4">
+          {requests.length > 0 && (
+            <Card className="p-4 space-y-2 border-primary">
+              <p className="font-bold flex items-center gap-2"><BellRing className="w-5 h-5 text-primary animate-pulse" />Table requests ({requests.length})</p>
+              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                {requests.map((r) => (
+                  <div key={r.id} className="flex items-center justify-between gap-2 rounded-lg bg-muted p-3">
+                    <div><p className="font-semibold">{r.table_name}</p><p className="text-sm">{SERVICE_LABELS[r.request_type] || r.request_type}</p><p className="text-xs text-muted-foreground">{new Date(r.created_at).toLocaleTimeString()}</p></div>
+                    <Button size="sm" onClick={() => attend(r)}><Check className="w-4 h-4 mr-1" />Done</Button>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
           <div className="flex gap-2 overflow-x-auto pb-1">
             {["active", "all", ...STATUSES].map((s) => (
               <Button key={s} size="sm" variant={filter === s ? "default" : "outline"} onClick={() => setFilter(s)} className="capitalize shrink-0">{s}</Button>
@@ -195,6 +255,29 @@ export default function AdminDineIn() {
         </TabsContent>
 
         <TabsContent value="tables" className="space-y-4">
+          <Card className="p-4 space-y-3">
+            <p className="font-bold">QR frame design</p>
+            <div className="flex flex-wrap gap-2">
+              {(["royal", "classic", "minimal", "custom"] as FrameStyle[]).map((st) => (
+                <Button key={st} size="sm" variant={frame.frame_style === st ? "default" : "outline"} className="capitalize"
+                  disabled={st === "custom" && !frame.frame_image_url} onClick={() => saveFrame({ ...frame, frame_style: st })}>
+                  {st === "custom" ? "My uploaded frame" : st}
+                </Button>
+              ))}
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3 items-end">
+              <div><Label>Headline</Label><Input value={frame.headline} maxLength={60} onChange={(e) => setFrame({ ...frame, headline: e.target.value })} onBlur={() => saveFrame(frame)} /></div>
+              <div><Label>Tagline</Label><Input value={frame.tagline} maxLength={80} onChange={(e) => setFrame({ ...frame, tagline: e.target.value })} onBlur={() => saveFrame(frame)} /></div>
+              <div>
+                <Label htmlFor="frame-upload">Upload your own frame (portrait image)</Label>
+                <label className="mt-1 flex h-10 cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed text-sm hover:bg-muted">
+                  <Upload className="w-4 h-4" />{uploading ? "Uploading..." : "Choose image"}
+                  <input id="frame-upload" type="file" accept="image/*" className="hidden" onChange={(e) => uploadFrame(e.target.files?.[0])} />
+                </label>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">Your uploaded image fills the card; the QR goes in the middle and the table name below it. Best size 1000 x 1400.</p>
+          </Card>
           <Card className="p-4 flex flex-wrap items-end gap-3">
             <div><Label>How many tables to add</Label><Input type="number" min={1} max={100} value={bulk} onChange={(e) => setBulk(e.target.value)} className="w-32" /></div>
             <Button onClick={addTables}><Plus className="w-4 h-4 mr-1" />Add tables</Button>
@@ -205,7 +288,7 @@ export default function AdminDineIn() {
             {tables.map((t) => (
               <Card key={t.id} className="p-3 space-y-2 text-center">
                 <div className="flex justify-between items-center"><p className="font-bold">{t.name}</p>{activeByTable[t.table_no] ? <Badge variant="destructive">{activeByTable[t.table_no]} live</Badge> : <Badge variant="secondary">Free</Badge>}</div>
-                {qrs[t.id] ? <img src={qrs[t.id]} alt={`QR for ${t.name}`} className="w-full rounded cursor-pointer" onClick={() => setPreview(t)} /> : <QrCode className="w-full h-24 opacity-30" />}
+                {qrs[t.id] ? <img src={framed[t.id] || qrs[t.id]} alt={`QR for ${t.name}`} className="w-full rounded cursor-pointer" onClick={() => setPreview(t)} /> : <QrCode className="w-full h-24 opacity-30" />}
                 <p className="text-xs font-mono">{t.code}</p>
                 <div className="flex justify-center gap-1 flex-wrap">
                   <Button size="icon" variant="outline" title="Download" onClick={() => download(t)}><Download className="w-4 h-4" /></Button>
@@ -223,7 +306,7 @@ export default function AdminDineIn() {
       <Dialog open={!!preview} onOpenChange={(o) => !o && setPreview(null)}>
         <DialogContent>
           <DialogHeader><DialogTitle>{preview?.name}</DialogTitle></DialogHeader>
-          {preview && <div className="text-center space-y-2"><img src={qrs[preview.id]} alt="QR" className="mx-auto w-72" /><p className="text-xs break-all">{preview.code && tableUrl(preview.code)}</p><Button onClick={() => printAll([preview])}><Printer className="w-4 h-4 mr-1" />Print</Button></div>}
+          {preview && <div className="text-center space-y-2"><img src={framed[preview.id] || qrs[preview.id]} alt="QR" className="mx-auto w-72" /><p className="text-xs break-all">{preview.code && tableUrl(preview.code)}</p><Button onClick={() => printAll([preview])}><Printer className="w-4 h-4 mr-1" />Print</Button></div>}
         </DialogContent>
       </Dialog>
 
